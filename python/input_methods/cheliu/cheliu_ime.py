@@ -34,6 +34,11 @@ QUICK_SELECT_KEYS = {'v': 1, 'r': 2, 's': 3, 'f': 4}
 # 反查拼音功能觸發鍵：` 之後接的字母 (m/u/e 已經被既有的 `M/`U/`E 功能用掉)
 PINYIN_LOOKUP_EXCLUDED_KEYS = ('m', 'u', 'e')
 
+# 反查拼音送出後的字碼提示訊息：改成「按下任一鍵才消失」而不是計時器到期就自動關閉
+# (見 onKeyUp/onKeyDown)。這裡先用一個很長的秒數把訊息撐著，真正的關閉是靠下一次
+# onKeyDown 主動呼叫 hideMessage()，這個數字本身沒有意義，純粹是「夠長不會自動到期」。
+PINYIN_CODE_MESSAGE_DURATION = 86400
+
 
 def _shortest_key_for_char(chardefs, ch):
     return min((key for key, value in chardefs.items() if ch in value), key=len)
@@ -63,6 +68,9 @@ class CheLiuTextService(TextService):
         self.pinyinChewingContext = None
         self.pinyinCandidates = []
         self.pinyinDisplayCandidates = []
+        self.pinyinCodeMessage = ""
+        self.pinyinCodeMessagePending = False
+        self.pinyinCodeMessageShowing = False
 
         # v/r/s/f 快速選字：記住使用者選了哪個字，等按空白/Enter 才真正送出。
         # 另外記住選字前的組字狀態，這樣如果使用者中途按別的鍵 (例如退格) 取消，
@@ -115,6 +123,8 @@ class CheLiuTextService(TextService):
         # 釋放反查拼音用的 libchewing context
         self.pinyinLookupMode = False
         self.pinyinChewingContext = None
+        self.pinyinCodeMessagePending = False
+        self.pinyinCodeMessageShowing = False
         self.pendingQuickSelectChar = None
 
 
@@ -127,6 +137,14 @@ class CheLiuTextService(TextService):
 
 
     def onKeyDown(self, keyEvent):
+        # 反查拼音送出後的字碼提示訊息：按下任一鍵就先關掉訊息(這個鍵本身還是照正常
+        # 邏輯繼續處理，不會被吃掉)，達到「按任意鍵才消失」的體感，而不是等
+        # messageDurationTime 計時器到期才消失。
+        if self.pinyinCodeMessageShowing:
+            self.pinyinCodeMessageShowing = False
+            self.isShowMessage = False
+            self.hideMessage()
+
         # 反查拼音模式中：按鍵完全不交給 cinbase，全部交給內嵌的 libchewing 引擎處理
         if self.pinyinLookupMode:
             return self.handlePinyinLookupKey(keyEvent)
@@ -255,10 +273,16 @@ class CheLiuTextService(TextService):
                 commitStr = ctx.commit_String().decode("UTF-8")
                 self.cinbase.setOutputString(self, RCinTable, commitStr)
                 if not self.client.isUiLess:
-                    self.isShowMessage = True
+                    # commitStr 可能是一個字、也可能是反查拼音打出來的一個詞，逐字列出蝦米碼。
+                    # 訊息內容/顯示時機不用 cinbase 既有的 onKeyUpMessage(那個是固定
+                    # messageDurationTime 秒後自動消失)，改成自己在 onKeyUp 顯示、在下一次
+                    # onKeyDown 按任意鍵時主動關閉，見 onKeyUp/onKeyDown。仍然要設
+                    # showMessageOnKeyUp=True，純粹是因為 cinbase.filterKeyUp() 只有在這個
+                    # 旗標(或其它幾個既有旗標)為真時才會讓 onKeyUp() 真的被呼叫到；
+                    # onKeyUpMessage 留空，避免 cinbase.onKeyUp() 自己也跳出來顯示一次。
+                    self.pinyinCodeMessage = "　".join(self.cin.getCharEncode(ch) for ch in commitStr)
+                    self.pinyinCodeMessagePending = True
                     self.showMessageOnKeyUp = True
-                    # commitStr 可能是一個字、也可能是反查拼音打出來的一個詞，逐字列出蝦米碼
-                    self.onKeyUpMessage = "　".join(self.cin.getCharEncode(ch) for ch in commitStr)
                 self.resetPinyinLookupMode()
                 self.cinbase.resetComposition(self)
                 return True
@@ -326,6 +350,16 @@ class CheLiuTextService(TextService):
 
 
     def onKeyUp(self, keyEvent):
+        # 反查拼音送出後的字碼提示訊息：用一個很長的 duration 撐著，實際的關閉時機交給
+        # onKeyDown 在下一次按鍵時主動呼叫 hideMessage()，不是靠這裡的計時器到期。
+        # 顯示完要把 showMessageOnKeyUp 清掉(onKeyUpMessage 本來就是空字串)，不然接下來
+        # 呼叫的 cinbase.onKeyUp() 會看到這個旗標還是 True，自己也跳出來重複處理一次。
+        if self.pinyinCodeMessagePending:
+            self.pinyinCodeMessagePending = False
+            self.showMessageOnKeyUp = False
+            self.isShowMessage = True
+            self.showMessage(self.pinyinCodeMessage, PINYIN_CODE_MESSAGE_DURATION)
+            self.pinyinCodeMessageShowing = True
         self.cinbase.onKeyUp(self, keyEvent)
 
 
