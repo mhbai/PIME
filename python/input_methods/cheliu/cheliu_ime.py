@@ -35,9 +35,9 @@ QUICK_SELECT_KEYS = {'v': 1, 'r': 2, 's': 3, 'f': 4}
 PINYIN_LOOKUP_EXCLUDED_KEYS = ('m', 'u', 'e')
 
 # 反查拼音送出後的字碼提示訊息：改成「按下任一鍵才消失」而不是計時器到期就自動關閉
-# (見 onKeyUp/onKeyDown)。這裡先用一個很長的秒數把訊息撐著，真正的關閉是靠下一次
+# (見 onKeyUp/onKeyDown)。這裡先用一個夠長的秒數把訊息撐著，真正的關閉是靠下一次
 # onKeyDown 主動呼叫 hideMessage()，這個數字本身沒有意義，純粹是「夠長不會自動到期」。
-PINYIN_CODE_MESSAGE_DURATION = 86400
+PINYIN_CODE_MESSAGE_DURATION = 60
 
 
 def _shortest_key_for_char(chardefs, ch):
