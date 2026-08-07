@@ -10,20 +10,10 @@ python/libchewing/*.dll
 python/libchewing/data/*.dat
 python/libchewing/data/*.tab
 
-# Vendored third-party front-end libraries bundled with the config UI pages
-# (bootstrap / jquery / jquery-ui / sweetalert2 / html5shiv / respond / touchspin / jAlert)
-# - not our code. PIME's own config.js / config.css / user_phrase.* live alongside
-# these and are NOT excluded.
-python/cinbase/config/css/bootstrap*.css*
-python/cinbase/config/css/jquery.bootstrap-touchspin*.css*
-python/cinbase/config/js/bootstrap*.js
-python/cinbase/config/js/html5shiv.min.js
-python/cinbase/config/js/respond.min.js
-python/cinbase/config/js/jquery-1.12.4.min.js
-python/cinbase/config/js/jquery.bootstrap-touchspin*.js
-python/cinbase/config/js/jAlert/
-python/cinbase/config/fonts/
-python/cinbase/config/info/
+# Vendored third-party front-end libraries bundled with chewing's config UI
+# pages (bootstrap / jquery / jquery-ui / sweetalert2) - not our code. Only
+# relevant if this ever tracks anything under python/input_methods/chewing/
+# again; nothing there is currently modified either.
 python/input_methods/chewing/css/bootstrap*.css*
 python/input_methods/chewing/css/sweetalert2.min.css
 python/input_methods/chewing/js/bootstrap*.js*
@@ -42,12 +32,11 @@ __pycache__/
 # Editor swap files
 *.swp
 
-# Pristine, unmodified copies of PIME's shared cinbase engine - identical to
-# what the official installer provides, so tracking them is redundant.
-# cheliu_ime.py no longer needs any cinbase-side additions: the v/r/s/f
-# quick-select's prefix check (formerly cinbase/cin.py's hasPrefix()) was
-# inlined as a module-level helper operating on the public self.cin.chardefs
-# dict instead, so all three files can be untracked.
-python/cinbase/__init__.py
-python/cinbase/config.py
-python/cinbase/cin.py
+# PIME's shared cinbase engine (code + every cin-based IME's data tables) -
+# none of it is modified, it's identical to what the official installer
+# provides. cheliu's own additions (v/r/s/f quick-select's prefix check,
+# the pinyin reverse-lookup message formatting) are implemented entirely in
+# python/input_methods/cheliu/cheliu_ime.py by reading cinbase's public
+# attributes (self.cin.chardefs, etc.), so nothing under cinbase/ needs to
+# be tracked at all - a fresh official install already provides it.
+python/cinbase/

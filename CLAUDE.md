@@ -25,7 +25,12 @@
 - `python\input_methods\cheliu\`（蝦米模組本身，所有新功能都寫在這裡）
 - `CLAUDE.md`、`README.md`、兩支 `register`/`unregister-pime.bat`
 
-**`cinbase` 底下完全沒有任何檔案被追蹤**，因為現在真的一行都沒改。`cinbase\__init__.py`／`cinbase\config.py` 原本因為蝦米反查拼音功能而改過，後來整個搬到 `cheliu_ime.py`；`cinbase\cin.py` 原本因為 v/r/s/f 快速選字多了一個 `hasPrefix()` 方法，後來也發現不需要——`self.cin.chardefs` 本來就是公開的一般 dict 屬性，直接在 `cheliu_ime.py` 裡寫一個 `_has_prefix(chardefs, prefix)` 模組層級函式操作它就好，不用在 `Cin` 類別上加方法。三個檔案現在都跟官方安裝程式裝出來的一模一樣，所以全部從 git 移除追蹤（`git rm --cached`，檔案還在磁碟上，只是不進 git），也加進 `.gitignore` 避免以後不小心又追蹤回去。二進位檔（`PIMELauncher.exe`、DLL、Python 直譯器）跟第三方前端函式庫也都沒有追蹤，細節見 `.gitignore` 裡的註解。
+**`cinbase\` 整個資料夾都不追蹤**（`git rm -r --cached python/cinbase/` + `.gitignore` 裡整條 `python/cinbase/` 排除），原則很簡單：**沒有實際改過的東西就不放進 git**。這包含：
+- `cinbase\__init__.py`／`config.py`／`cin.py` 這三個引擎程式檔——原本都各自被我們改過（反查拼音功能、`hasPrefix()`），後來全部搬到 `cheliu_ime.py` 或發現不需要，現在完全恢復原廠。
+- `cinbase\json\`、`cinbase\data\`、`cinbase\icons\`、`cinbase\config\`（網頁設定介面）、`cinbase\tools\` 這些——這些是 PIME 原始安裝就有的東西（各輸入法共用的碼表資料、資源檔），**從頭到尾都沒被我們動過**，只是因為 PIME 的目錄設計把所有輸入法的碼表都集中放在這個共用資料夾，所以一開始 `git add` 時被一起掃進去，並非我們刻意選擇追蹤。
+- 包含 `cinbase\json\liu.json`、`cinbase\cin\liu.cin`——雖然內容是蝦米專屬的字碼表，但因為實體檔案位置也在 `cinbase\` 底下、而且內容跟官方一致，一併排除。
+
+蝦米新增的功能（v/r/s/f 快速選字、反查拼音）全部只靠讀取 `cinbase` 公開的屬性（`self.cin.chardefs`、`self.compositionChar`、`self.multifunctionmode` 等）跟呼叫既有方法（`self.cinbase.setOutputString(...)`、`self.cinbase.resetComposition(...)`）完成，程式碼本身完全寫在 `cheliu_ime.py` 裡，所以整個 `cinbase\` 資料夾對這個 repo 來說就是「新電腦裝官方版就會有」的東西，不需要我們額外提供。二進位檔（`PIMELauncher.exe`、DLL、Python 直譯器）跟第三方前端函式庫也都沒有追蹤，細節見 `.gitignore` 裡的註解。
 
 在新電腦上安裝的流程是「先裝官方 PIME 1.3.0-stable，再用 `git init` + `git reset --hard origin/master` 疊上這個 repo 的內容」，完整步驟寫在 `README.md`。
 

@@ -2,7 +2,7 @@
 
 這是 [PIME](https://github.com/EasyIME/PIME)（Windows 中文輸入法框架，版本 `1.3.0-stable`）的客製化版本，針對內建的「蝦米」（Boshiamy／`cheliu`）輸入法新增了幾個功能。所有改動都是**純程式邏輯**，沒有修改任何有版權的字碼表資料，可以自由分享。
 
-這個 repo 只追蹤真正改過的檔案：`python\input_methods\cheliu\` 底下的蝦米模組本身。共用引擎 `cinbase`（`__init__.py`／`config.py`／`cin.py`）完全沒有任何改動，跟官方安裝出來的版本一模一樣，所以刻意不放進這個 repo——所有新功能需要用到的資料查詢（例如判斷某個字碼是不是更長字碼的字首）都是在 `cheliu_ime.py` 裡直接操作 `Cin` 類別本來就公開的屬性完成，不需要改動 `cinbase` 本身。
+這個 repo 只追蹤真正改過的檔案：`python\input_methods\cheliu\` 底下的蝦米模組本身。共用引擎 `cinbase\`（程式邏輯、各輸入法的碼表資料、網頁設定介面等）完全沒有任何改動，跟官方安裝出來的版本一模一樣，所以整個資料夾都刻意不放進這個 repo——所有新功能需要用到的資料查詢（例如判斷某個字碼是不是更長字碼的字首）都是在 `cheliu_ime.py` 裡直接操作 `cinbase` 本來就公開的屬性完成，不需要改動 `cinbase` 本身。
 
 ## 新增功能
 
