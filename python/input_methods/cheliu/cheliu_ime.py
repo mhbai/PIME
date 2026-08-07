@@ -39,6 +39,10 @@ def _shortest_key_for_char(chardefs, ch):
     return min((key for key, value in chardefs.items() if ch in value), key=len)
 
 
+def _has_prefix(chardefs, prefix):
+    return any(key.startswith(prefix) for key in chardefs)
+
+
 class CheLiuTextService(TextService):
 
     compositionChar = ''
@@ -175,7 +179,7 @@ class CheLiuTextService(TextService):
         if (self.showCandidates and keyEvent.isPrintableChar()
                 and not keyEvent.isKeyDown(VK_CONTROL) and not keyEvent.isKeyDown(VK_SHIFT)):
             ch = chr(keyEvent.charCode).lower()
-            if ch in QUICK_SELECT_KEYS and not self.cin.hasPrefix(self.compositionChar + ch):
+            if ch in QUICK_SELECT_KEYS and not _has_prefix(self.cin.chardefs, self.compositionChar + ch):
                 idx = QUICK_SELECT_KEYS[ch]
                 if idx < len(self.candidateList):
                     self.pendingQuickSelectChar = self.candidateList[idx]

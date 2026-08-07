@@ -36,13 +36,18 @@ python/input_methods/chewing/js/sweetalert2.min.js
 __pycache__/
 *.pyc
 
-# RIME-derived cheliu code table kept locally for reference only - it's a
-# derivative of Boshiamy's copyrighted code table and must not be committed
-python/cinbase/cin/liu.cin.rime-derived
-python/cinbase/json/liu.json.rime-derived
-
 # Claude Code local tool settings - machine/session-specific, not project source
 .claude/settings.local.json
 
 # Editor swap files
 *.swp
+
+# Pristine, unmodified copies of PIME's shared cinbase engine - identical to
+# what the official installer provides, so tracking them is redundant.
+# cheliu_ime.py no longer needs any cinbase-side additions: the v/r/s/f
+# quick-select's prefix check (formerly cinbase/cin.py's hasPrefix()) was
+# inlined as a module-level helper operating on the public self.cin.chardefs
+# dict instead, so all three files can be untracked.
+python/cinbase/__init__.py
+python/cinbase/config.py
+python/cinbase/cin.py

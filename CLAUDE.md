@@ -18,6 +18,17 @@
   - `libchewing`、`opencc`（簡繁轉換）— 相依函式庫
 - `Uninstall.exe` — 完整解除安裝程式（會做 TSF/COM 取消註冊 + 刪檔 + 清控制台項目）
 
+## Git 追蹤範圍
+
+這個目錄有掛 git（私人 repo：`https://github.com/mhbai/PIME`），但**只追蹤真正改過的東西**，不是整個 PIME 安裝目錄：
+
+- `python\input_methods\cheliu\`（蝦米模組本身，所有新功能都寫在這裡）
+- `CLAUDE.md`、`README.md`、兩支 `register`/`unregister-pime.bat`
+
+**`cinbase` 底下完全沒有任何檔案被追蹤**，因為現在真的一行都沒改。`cinbase\__init__.py`／`cinbase\config.py` 原本因為蝦米反查拼音功能而改過，後來整個搬到 `cheliu_ime.py`；`cinbase\cin.py` 原本因為 v/r/s/f 快速選字多了一個 `hasPrefix()` 方法，後來也發現不需要——`self.cin.chardefs` 本來就是公開的一般 dict 屬性，直接在 `cheliu_ime.py` 裡寫一個 `_has_prefix(chardefs, prefix)` 模組層級函式操作它就好，不用在 `Cin` 類別上加方法。三個檔案現在都跟官方安裝程式裝出來的一模一樣，所以全部從 git 移除追蹤（`git rm --cached`，檔案還在磁碟上，只是不進 git），也加進 `.gitignore` 避免以後不小心又追蹤回去。二進位檔（`PIMELauncher.exe`、DLL、Python 直譯器）跟第三方前端函式庫也都沒有追蹤，細節見 `.gitignore` 裡的註解。
+
+在新電腦上安裝的流程是「先裝官方 PIME 1.3.0-stable，再用 `git init` + `git reset --hard origin/master` 疊上這個 repo 的內容」，完整步驟寫在 `README.md`。
+
 ## 啟動（註冊）/ 停止（取消註冊）機制
 
 PIME 是透過標準 **COM + TSF 註冊**機制掛進系統的，不是 Windows 服務（沒有對應的 `services.msc` 項目），因此「啟動/停止」實際上指的是「註冊/取消註冊 COM 元件並登記/移除 TSF 輸入法」。
@@ -85,7 +96,8 @@ powershell -NoProfile -Command "Get-Process -Name python -ErrorAction SilentlyCo
 1. 一開始為了解決「打 `ix` 會撞到我/曳，正式版嘸蝦米可以用 `v` 選字，PIME 沒做這功能」的問題，把整份表換成用 RIME 的 `references/liur_Trad.dict.yaml`（嘸蝦米字碼表的衍生資料）轉換出來的版本，裡面刻意加了 `ixv → 曳` 這類靠 `vrsf` 接續字母消歧義的碼。轉換方式跟細節（含 `maxCharLength` 當時改成 5）仍留著紀錄在 git 歷史裡（commit `40cf4d8` 之前那次）。
 2. 後來發現這個做法的根本問題：那份轉換出來的表是嘸蝦米有版權碼表的衍生物，**不能自由分享/散佈**，違背了想把這些改動開源分享的初衷。
 3. 所以改成用「v/r/s/f 快速選字」這個**純邏輯**方案（見下一節），完全不需要動字碼表就能達到一樣的選字體驗，而且是完全獨立的 `cheliu_ime.py` 改動，不影響其它 cin 系輸入法。
-4. 邏輯方案驗證沒問題後，**把 `liu.cin`／`liu.json` 換回原廠版本**（用備份 `liu.cin.bak`／`liu.json.bak` 複製回去），`maxCharLength` 也改回 `4`。RIME 轉換版的表另存成 `liu.cin.rime-derived`／`liu.json.rime-derived`（僅供本機參考，**不要 commit 進 git**，因為那份仍然是衍生自嘸蝦米版權碼表）。
+4. 邏輯方案驗證沒問題後，**把 `liu.cin`／`liu.json` 換回原廠版本**（用備份 `liu.cin.bak`／`liu.json.bak` 複製回去），`maxCharLength` 也改回 `4`。RIME 轉換版的表原本另存成 `liu.cin.rime-derived`／`liu.json.rime-derived`（僅供本機參考，從未進 git，後來也整個刪掉了，見下一點）。
+5. 既然選字問題已經完全靠程式邏輯解決，`references\liur_Trad.dict.yaml`（RIME 字碼表原始資料，341KB）跟上面提到的 `liu.cin.rime-derived`／`liu.json.rime-derived` 都已經從磁碟上整個刪掉，不再需要留著任何 RIME 相關的衍生資料。
 
 現在整包（`cinbase`/`cheliu_ime.py` 的程式邏輯 + 原廠 PIME 字碼表）都可以自由分享，沒有版權疑慮。
 
@@ -120,9 +132,11 @@ powershell -NoProfile -Command "Get-Process -Name python -ErrorAction SilentlyCo
 
 已用真實的 `cinbase` 引擎 + 真實 `liu.json` 資料驗證過：打 `ix`（候選字 `我/曳`）按 `v` → 組字區變成「ＩＸＶ」、候選字窄化成只剩「曳」→ 按空白鍵正確送出「曳」；選字後改按退格 → 正確還原回「ix」狀態（候選字回到 `我/曳`）再正常刪字。`abi`（5 個候選字）按 `s` 一樣正常運作。
 
-**已還原成原廠字碼表：** `liu.cin`/`liu.json` 已換回原廠版本（`maxCharLength` 也還原成 `4`），RIME 轉換版另存成 `liu.cin.rime-derived`／`liu.json.rime-derived` 僅供本機參考、已加進 `.gitignore` 不會被 commit。整包（程式邏輯 + 原廠字碼表）現在可以自由分享，不牽涉版權問題。
+**已還原成原廠字碼表：** `liu.cin`/`liu.json` 已換回原廠版本（`maxCharLength` 也還原成 `4`）。RIME 轉換版（`liu.cin.rime-derived`／`liu.json.rime-derived`）、原始的 `references\liur_Trad.dict.yaml` 都已經從磁碟上整個刪除，不再保留任何 RIME 衍生資料。整包（程式邏輯 + 原廠字碼表）現在可以自由分享，不牽涉版權問題。
 
-**踩到的坑 1：v/r/s/f 本身也是合法的蝦米字根字母，不能無條件轉譯成選字鍵。** 上線後發現「現」(`kmr`)、「剛」(`nber`) 這種碼尾剛好是 `v/r/s/f` 的字打不出來——因為打完 `km`（候選字視窗開啟）之後接著打 `r` 想組成 `kmr`，卻被直接攔截去選第 3 個候選字了。修法是在轉譯前多判斷一步：**只有「目前組字 + 這個字母」不可能再是任何更長合法碼的字首時，才當作選字鍵**；否則就讓它正常繼續組字。新增 `cinbase\cin.py` 的 `hasPrefix(prefix)`（`any(key.startswith(prefix) for key in self.chardefs)`，純附加、唯讀的資料查詢方法，不影響任何既有呼叫端；這是目前唯一還留在 `cinbase` 家族裡的異動，跟反查拼音功能已經完全搬到 `cheliu_ime.py` 不衝突，因為它只是個被動的資料查詢，沒有參與任何按鍵分派邏輯），在 `cheliu_ime.py` 裡改成 `if ch in QUICK_SELECT_KEYS and not self.cin.hasPrefix(self.compositionChar + ch):` 才處理。已用原廠字碼表資料驗證：`hasPrefix('kmr')`／`hasPrefix('nber')` 都是 `True`（正確判斷「還有更長的碼」不轉譯），`hasPrefix('abiv'/'abir'/'abis'/'abif')` 都是 `False`（原本能選字的案例不受影響）。
+**踩到的坑 1：v/r/s/f 本身也是合法的蝦米字根字母，不能無條件轉譯成選字鍵。** 上線後發現「現」(`kmr`)、「剛」(`nber`) 這種碼尾剛好是 `v/r/s/f` 的字打不出來——因為打完 `km`（候選字視窗開啟）之後接著打 `r` 想組成 `kmr`，卻被直接攔截去選第 3 個候選字了。修法是在轉譯前多判斷一步：**只有「目前組字 + 這個字母」不可能再是任何更長合法碼的字首時，才當作選字鍵**；否則就讓它正常繼續組字。
+
+判斷用的 `_has_prefix(chardefs, prefix)`（`any(key.startswith(prefix) for key in chardefs)`）是 `cheliu_ime.py` 裡的模組層級函式，直接吃 `self.cin.chardefs`（`Cin` 類別本來就公開的一般 dict 屬性）——一開始是寫成 `cinbase\cin.py` 的 `Cin.hasPrefix()` 方法，後來發現完全不需要碰 `cinbase`，改成現在這樣純粹在 `cheliu_ime.py` 裡操作公開屬性即可，`cinbase` 因此完全恢復原廠狀態。呼叫方式是 `if ch in QUICK_SELECT_KEYS and not _has_prefix(self.cin.chardefs, self.compositionChar + ch):`。已用原廠字碼表資料驗證：`_has_prefix(chardefs, 'kmr')`／`_has_prefix(chardefs, 'nber')` 都是 `True`（正確判斷「還有更長的碼」不轉譯），`_has_prefix(chardefs, 'abiv'/'abir'/'abis'/'abif')` 都是 `False`（原本能選字的案例不受影響）。
 
 **踩到的坑 2：一開始把 v/r/s/f 轉譯成數字選字鍵直接丟給 cinbase，會導致按下 v/r/s/f 當下就立刻上字**，跟這套輸入法「打完字要按空白鍵才上字」的一貫節奏不一致，會讓使用者覺得意外（`config.json` 的 `directCommitString` 其實是死設定，`cinbase` 完全沒讀，實際上字靠的是空白/Enter 觸發 `cinbase` 裡的送出邏輯）。改成「按 v/r/s/f 時記下 `self.pendingQuickSelectChar`，之後按空白/Enter 才由 `cheliu_ime.py` 自己呼叫 `self.cinbase.setOutputString(...)` 送出」解決了自動上字的問題。
 
