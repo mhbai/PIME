@@ -67,7 +67,7 @@ git fetch origin
 git reset --hard origin/master
 ```
 
-因為是私人 repo，`git fetch` 會要求登入 GitHub 帳號。`git reset --hard` 只會覆蓋這個 repo 裡有追蹤的檔案（蝦米的程式碼、字碼表、這兩支輔助腳本等），完全不會動到官方安裝程式裝進去、repo 裡沒有追蹤的檔案（`PIMELauncher.exe`、DLL、Python 直譯器）。
+`git reset --hard` 只會覆蓋這個 repo 裡有追蹤的檔案（蝦米的程式碼、字碼表、這兩支輔助腳本等），完全不會動到官方安裝程式裝進去、repo 裡沒有追蹤的檔案（`PIMELauncher.exe`、DLL、Python 直譯器）。
 
 ### 步驟 3：確認 libchewing 有裝進來
 
