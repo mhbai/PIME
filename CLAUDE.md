@@ -68,6 +68,8 @@ powershell -NoProfile -Command "Get-Process -Name python -ErrorAction SilentlyCo
 
 新增停止/重啟這段的原因：改完蝦米字碼表（`liu.cin`/`liu.json`）或 `cheliu_ime.py` 後，光是切換輸入法測試，`python.exe` 後端進程完全沒有重啟過，導致改動一直不生效、也沒有任何錯誤訊息，只會表現成「查無組字」之類的假象（誤以為是字碼表寫錯）。之後改完程式碼或字碼表要測試，記得先跑一次 `unregister-pime.bat` 再跑 `register-pime.bat`，再重新切換輸入法，才能確保是用最新的檔案在跑，而且 `PIMELauncher.exe` 真的有被啟動起來。
 
+**`regsvr32` 加了 `/s`（silent）：** 原本 `regsvr32` 成功/失敗都會跳出訊息視窗要手動按掉，兩支腳本現在都用 `/s` 讓它安靜執行，改用 `%errorlevel%` 判斷成功與否，直接印文字訊息（`x86/x64 build registered/unregistered successfully.` 或 `[ERROR] ... exit code ...`），不用再用滑鼠點掉彈窗。
+
 **編碼注意事項：** 這兩支腳本內文刻意全用 ASCII 英文，沒有放中文。原因是最初版本內含中文註解/訊息，UTF-8 存檔後在這台機器上用 `cmd.exe` 執行時，因為主控台的作用中文碼頁不是 UTF-8，多位元組的中文字被誤判成 `&`、`|` 之類的特殊字元，導致整行被拆成好幾個「無法辨識的命令」而報錯。在 `@echo off` 後加 `chcp 65001 >nul` 理論上可解，但在這台機器上實測仍失敗（cmd 對批次檔的頁碼切換時機不夠可靠），因此改用純 ASCII 內容澈底避開這個問題。**之後若要修改這兩支 .bat，避免加入中文字元。**
 
 ## 蝦米（cheliu）字碼表
@@ -94,6 +96,12 @@ powershell -NoProfile -Command "Get-Process -Name python -ErrorAction SilentlyCo
 實際踩到的例子：新增 `pinyinReverseLookup` 這個設定欄位時，改了 `python\input_methods\cheliu\config\config.json` 加上 `"pinyinReverseLookup": true`，但因為這台機器的 cheliu 早就跑過（`C:\Users\<user>\AppData\Roaming\PIME\cheliu\config.json` 已存在，日期是舊的），實際套用到 `cbTS.pinyinReverseLookup` 的還是 `CinBaseConfig` 裡的預設值 `False`（因為那份舊的 `%APPDATA%` 複本裡根本沒有這個欄位，`json.load()` 更新時自然不會補上）。症狀是功能完全沒反應，而且**沒有任何錯誤或例外**，很容易誤判成程式邏輯有問題，實際上只是設定沒套用到。
 
 **之後在 `cinbase/config.py` 裡新增任何設定欄位、並且需要某個已經在用的 IME 預設開啟時，記得同時手動修改 `%APPDATA%\PIME\<imeDirName>\config.json` 這份實際生效的複本**（不是只改安裝目錄裡的範本），或是刪掉那份複本讓它退回讀範本（但這樣會連使用者原本的其他自訂設定一起清掉，通常不建議）。
+
+## `autoClearCompositionChar`：拆錯字碼自動清除輸入字串
+
+打一串查無此字根組合的字碼（例如 `LLLL`）按空白鍵，`cinbase` 只會跳出「查無組字...」的訊息，**預設不會清掉打錯的字**，還要自己按退格清掉才能重打。這個行為其實 `cinbase` 已經做好開關了（設定選單裡的「拆錯字碼時自動清除輸入字串」，對應 `cbTS.autoClearCompositionChar`，`cinbase/__init__.py` 裡「查無組字」的分支本來就有 `if cbTS.autoClearCompositionChar: ... self.resetComposition(cbTS)` 這段），只是預設值是 `false`，純粹是設定值的問題，**不用改任何程式碼**。
+
+把 `python\input_methods\cheliu\config\config.json`（範本）跟 `%APPDATA%\PIME\cheliu\config.json`（實際生效複本，見上一節）裡的 `"autoClearCompositionChar"` 都改成 `true` 就會變成嘸蝦米官方那種行為：拆錯字碼按空白鍵後，輸入的字碼會自動清空，不用再手動按退格。
 
 ## v/r/s/f 快速選字（純邏輯改動，不碰字碼表，可自由分享）
 

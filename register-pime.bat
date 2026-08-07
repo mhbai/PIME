@@ -30,10 +30,20 @@ start /D "C:\Program Files (x86)\PIME\" PIMELauncher.exe
 powershell -NoProfile -Command "Get-Process -Name python -ErrorAction SilentlyContinue | Where-Object { $_.Path -ieq 'C:\Program Files (x86)\PIME\python\python3\python.exe' } | Stop-Process -Force"
 
 echo Registering x86 build...
-regsvr32 "%DIR%x86\PIMETextService.dll"
+regsvr32 /s "%DIR%x86\PIMETextService.dll"
+if %errorlevel% neq 0 (
+    echo [ERROR] Failed to register x86 build ^(exit code %errorlevel%^).
+) else (
+    echo x86 build registered successfully.
+)
 
 echo Registering x64 build...
-regsvr32 "%DIR%x64\PIMETextService.dll"
+regsvr32 /s "%DIR%x64\PIMETextService.dll"
+if %errorlevel% neq 0 (
+    echo [ERROR] Failed to register x64 build ^(exit code %errorlevel%^).
+) else (
+    echo x64 build registered successfully.
+)
 
 echo.
 echo Done. Check the "Add an input method" list to confirm PIME appears.

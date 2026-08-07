@@ -23,10 +23,20 @@ taskkill /F /IM PIMELauncher.exe >nul 2>&1
 powershell -NoProfile -Command "Get-Process -Name python -ErrorAction SilentlyContinue | Where-Object { $_.Path -ieq 'C:\Program Files (x86)\PIME\python\python3\python.exe' } | Stop-Process -Force"
 
 echo Unregistering x86 build...
-regsvr32 /u "C:\Program Files (X86)\PIME\x86\PIMETextService.dll"
+regsvr32 /u /s "C:\Program Files (X86)\PIME\x86\PIMETextService.dll"
+if %errorlevel% neq 0 (
+    echo [ERROR] Failed to unregister x86 build ^(exit code %errorlevel%^).
+) else (
+    echo x86 build unregistered successfully.
+)
 
 echo Unregistering x64 build...
-regsvr32 /u "C:\Program Files (X86)\PIME\x64\PIMETextService.dll"
+regsvr32 /u /s "C:\Program Files (X86)\PIME\x64\PIMETextService.dll"
+if %errorlevel% neq 0 (
+    echo [ERROR] Failed to unregister x64 build ^(exit code %errorlevel%^).
+) else (
+    echo x64 build unregistered successfully.
+)
 
 echo.
 echo Done.

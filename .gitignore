@@ -43,3 +43,6 @@ python/cinbase/json/liu.json.rime-derived
 
 # Claude Code local tool settings - machine/session-specific, not project source
 .claude/settings.local.json
+
+# Editor swap files
+*.swp

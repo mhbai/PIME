@@ -17,7 +17,7 @@
     "outputSimpChinese": false,
 	"enableSwitchTCSC": true,
     "hidePromptMessages": true,
-    "autoClearCompositionChar": false,
+    "autoClearCompositionChar": true,
     "playSoundWhenNonCand": false,
     "directShowCand": true,
     "directCommitString": false,
