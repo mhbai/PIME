@@ -71,10 +71,11 @@ regsvr32 /u "x64\PIMETextService.dll"
 
 - `register-pime.bat` — 以系統管理員身分執行：先停止現有的 PIME 後端行程，**明確重新啟動 `PIMELauncher.exe`**（見下方原因），再對 x86/x64 兩份 DLL 執行 `regsvr32`（註冊/啟動）
 - `unregister-pime.bat` — 以系統管理員身分執行：先停止現有的 PIME 後端行程，再對 x86/x64 兩份 DLL 執行 `regsvr32 /u`（取消註冊/停止）
+- `update-pime.bat` — 以系統管理員身分執行：在其它已經用 git overlay 方式裝好這個 repo 的機器上，把安裝目錄更新到 GitHub 上最新的 commit，並自動重啟後端。依序做：`git fetch origin` → 檢查 `git status --porcelain` 是否乾淨（不乾淨就中止，不會默默蓋掉本機的改動）→ `git reset --hard origin/master` → `call unregister-pime.bat` → `call register-pime.bat`。等於是把先前手動打的那幾行指令（`git fetch`/`git reset --hard`/重啟後端）包成一支腳本，行為完全一樣，只是不用每次手動打。
 
-兩個腳本都會先檢查是否具備系統管理員權限（用 `net session` 測試），沒有的話會提示需要「以系統管理員身分執行」再重新執行。
+三個腳本都會先檢查是否具備系統管理員權限（用 `net session` 測試），沒有的話會提示需要「以系統管理員身分執行」再重新執行。
 
-**停止後端行程的邏輯（兩支腳本都有）：**
+**停止後端行程的邏輯（`register`/`unregister-pime.bat` 都有，`update-pime.bat` 透過呼叫它們間接沿用）：**
 ```
 taskkill /F /IM PIMELauncher.exe
 powershell -NoProfile -Command "Get-Process -Name python -ErrorAction SilentlyContinue | Where-Object { $_.Path -ieq 'C:\Program Files (x86)\PIME\python\python3\python.exe' } | Stop-Process -Force"
@@ -87,7 +88,7 @@ powershell -NoProfile -Command "Get-Process -Name python -ErrorAction SilentlyCo
 
 **`regsvr32` 加了 `/s`（silent）：** 原本 `regsvr32` 成功/失敗都會跳出訊息視窗要手動按掉，兩支腳本現在都用 `/s` 讓它安靜執行，改用 `%errorlevel%` 判斷成功與否，直接印文字訊息（`x86/x64 build registered/unregistered successfully.` 或 `[ERROR] ... exit code ...`），不用再用滑鼠點掉彈窗。
 
-**編碼注意事項：** 這兩支腳本內文刻意全用 ASCII 英文，沒有放中文。原因是最初版本內含中文註解/訊息，UTF-8 存檔後在這台機器上用 `cmd.exe` 執行時，因為主控台的作用中文碼頁不是 UTF-8，多位元組的中文字被誤判成 `&`、`|` 之類的特殊字元，導致整行被拆成好幾個「無法辨識的命令」而報錯。在 `@echo off` 後加 `chcp 65001 >nul` 理論上可解，但在這台機器上實測仍失敗（cmd 對批次檔的頁碼切換時機不夠可靠），因此改用純 ASCII 內容澈底避開這個問題。**之後若要修改這兩支 .bat，避免加入中文字元。**
+**編碼注意事項：** 這三支腳本內文刻意全用 ASCII 英文，沒有放中文。原因是最初版本內含中文註解/訊息，UTF-8 存檔後在這台機器上用 `cmd.exe` 執行時，因為主控台的作用中文碼頁不是 UTF-8，多位元組的中文字被誤判成 `&`、`|` 之類的特殊字元，導致整行被拆成好幾個「無法辨識的命令」而報錯。在 `@echo off` 後加 `chcp 65001 >nul` 理論上可解，但在這台機器上實測仍失敗（cmd 對批次檔的頁碼切換時機不夠可靠），因此改用純 ASCII 內容澈底避開這個問題。**之後若要修改這三支 .bat，避免加入中文字元。**
 
 ## 蝦米（cheliu）字碼表
 

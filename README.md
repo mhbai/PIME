@@ -89,4 +89,20 @@ C:\Program Files (x86)\PIME\python\libchewing\chewing.dll
 
 ---
 
+## 更新既有安裝
+
+已經照上面裝好的機器，之後要更新到最新版時，對 `update-pime.bat` 按右鍵「以系統管理員身分執行」即可，會自動依序做：`git fetch` → `git reset --hard origin/master` → 重啟後端（`unregister-pime.bat` + `register-pime.bat`）。如果這個 repo 有本機沒 commit 的改動，腳本會先中止並提示，不會默默蓋掉。
+
+也可以手動執行同樣的步驟：
+
+```powershell
+cd "C:\Program Files (x86)\PIME"
+git fetch origin
+git reset --hard origin/master
+```
+
+更新完一定要重啟後端行程（跑 `unregister-pime.bat` 再跑 `register-pime.bat`），改動才會生效——PIME 的後端一旦啟動就會持續常駐，不會自動重載新的程式碼。
+
+---
+
 更詳細的技術細節、踩過的坑、跟 `cinbase` 共用引擎之間的取捨，記錄在 [`CLAUDE.md`](./CLAUDE.md)。

@@ -1,5 +1,5 @@
 # This repo only tracks what we've actually modified for the cheliu (蝦米)
-# input method: the cheliu module itself, our own docs, and the two helper
+# input method: the cheliu module itself, our own docs, and the three helper
 # scripts. Everything else in this PIME installation - cinbase, libchewing,
 # opencc, the chewing (新酷音) module, core plumbing (server.py,
 # textService.py, backends.json, ...), the bundled Python runtime, compiled
@@ -16,6 +16,7 @@
 !/README.md
 !/register-pime.bat
 !/unregister-pime.bat
+!/update-pime.bat
 !/python/
 
 /python/*
