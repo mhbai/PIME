@@ -99,7 +99,7 @@ powershell -NoProfile -Command "Get-Process -Name python -ErrorAction SilentlyCo
 **目前狀態：用的是原廠 PIME 內建的 `liu.cin`／`liu.json`（stock，未修改）。**
 
 這中間有一段換表又換回來的歷史，記錄一下避免以後搞混：
-1. 一開始為了解決「打 `ix` 會撞到我/曳，正式版嘸蝦米可以用 `v` 選字，PIME 沒做這功能」的問題，把整份表換成用 RIME 的 `references/liur_Trad.dict.yaml`（嘸蝦米字碼表的衍生資料）轉換出來的版本，裡面刻意加了 `ixv → 曳` 這類靠 `vrsf` 接續字母消歧義的碼。轉換方式跟細節（含 `maxCharLength` 當時改成 5）仍留著紀錄在 git 歷史裡（commit `40cf4d8` 之前那次）。
+1. 一開始為了解決「打 `ix` 會撞到我/曳，正式版嘸蝦米可以用 `v` 選字，PIME 沒做這功能」的問題，把整份表換成用 RIME 的 `references/liur_Trad.dict.yaml`（嘸蝦米字碼表的衍生資料）轉換出來的版本，裡面刻意加了 `ixv → 曳` 這類靠 `vrsf` 接續字母消歧義的碼。轉換方式跟細節（含 `maxCharLength` 當時改成 5）原本留在 git 早期提交裡，後來發現下一點的版權問題後，已用 `git filter-repo` 把 `python/cinbase/cin/liu.cin`、`python/cinbase/json/liu.json`（RIME 轉換版本）跟 `references/liur_Trad.dict.yaml` 這三個路徑從**所有**歷史提交裡整個清除並 force-push 覆蓋 GitHub，所以現在 git 歷史裡已經完全找不到這份有版權疑慮的衍生資料，不只是工作目錄裡沒有。
 2. 後來發現這個做法的根本問題：那份轉換出來的表是嘸蝦米有版權碼表的衍生物，**不能自由分享/散佈**，違背了想把這些改動開源分享的初衷。
 3. 所以改成用「v/r/s/f 快速選字」這個**純邏輯**方案（見下一節），完全不需要動字碼表就能達到一樣的選字體驗，而且是完全獨立的 `cheliu_ime.py` 改動，不影響其它 cin 系輸入法。
 4. 邏輯方案驗證沒問題後，**把 `liu.cin`／`liu.json` 換回原廠版本**（用備份 `liu.cin.bak`／`liu.json.bak` 複製回去），`maxCharLength` 也改回 `4`。RIME 轉換版的表原本另存成 `liu.cin.rime-derived`／`liu.json.rime-derived`（僅供本機參考，從未進 git，後來也整個刪掉了，見下一點）。
