@@ -34,6 +34,8 @@
 
 **`python\libchewing\`（`ChewingContext`／`chewing.dll`／辭典資料）同樣完全沒追蹤**，理由一樣：反查拼音功能有 import 它（`from libchewing import ChewingContext, CHEWING_DATA_DIR, CHINESE_MODE, HALFSHAPE_MODE`），但只是呼叫既有 API，從沒改過裡面任何一行（`git log` 查過，只有最初整包匯入那次紀錄）。已經確認過官方 `installer.nsi` 的 Register 區塊會把 `python\libchewing\` 整個資料夾在**任一個** Python 輸入法被勾選時就無條件裝進去，跟「新酷音」這個獨立勾選框無關，所以新電腦裝官方版一樣會有一模一樣的複本。
 
+**`python\opencc\`（繁簡轉換）也是同樣狀況**，`cinbase\__init__.py` 頂端有 `import opencc`（`outputSimpChinese` 這類功能會用到），一樣只呼叫既有 API、從沒改過內容，而且也是被 `installer.nsi` 那段無條件的萬用複製（`File /r ... "..\python\*.*"`）掃進去，所以一併移除追蹤。
+
 二進位檔（`PIMELauncher.exe`、DLL、Python 直譯器）跟第三方前端函式庫也都沒有追蹤，細節見 `.gitignore` 裡的註解。
 
 在新電腦上安裝的流程是「先裝官方 PIME 1.3.0-stable，再用 `git init` + `git reset --hard origin/master` 疊上這個 repo 的內容」，完整步驟寫在 `README.md`。

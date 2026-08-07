@@ -4,8 +4,11 @@ PIMELauncher.exe
 Uninstall.exe
 x86/
 x64/
-python/opencc/*.dll
-python/opencc/*.ocd
+
+# opencc (Traditional/Simplified Chinese conversion) - cinbase imports this
+# for outputSimpChinese-style features but it's never modified. Same
+# unconditional Register-section install as libchewing (see below).
+python/opencc/
 
 # libchewing wrapper (Python + chewing.dll + dictionary data) - cheliu_ime.py
 # imports this for the pinyin reverse-lookup feature but never modifies it.
