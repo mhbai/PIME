@@ -1,0 +1,40 @@
+# Bundled third-party binaries / runtime - not our source, no meaningful diffs
+python/python3/
+PIMELauncher.exe
+Uninstall.exe
+x86/
+x64/
+python/opencc/*.dll
+python/opencc/*.ocd
+python/libchewing/*.dll
+python/libchewing/data/*.dat
+python/libchewing/data/*.tab
+
+# Vendored third-party front-end libraries bundled with the config UI pages
+# (bootstrap / jquery / jquery-ui / sweetalert2 / html5shiv / respond / touchspin / jAlert)
+# - not our code. PIME's own config.js / config.css / user_phrase.* live alongside
+# these and are NOT excluded.
+python/cinbase/config/css/bootstrap*.css*
+python/cinbase/config/css/jquery.bootstrap-touchspin*.css*
+python/cinbase/config/js/bootstrap*.js
+python/cinbase/config/js/html5shiv.min.js
+python/cinbase/config/js/respond.min.js
+python/cinbase/config/js/jquery-1.12.4.min.js
+python/cinbase/config/js/jquery.bootstrap-touchspin*.js
+python/cinbase/config/js/jAlert/
+python/cinbase/config/fonts/
+python/cinbase/config/info/
+python/input_methods/chewing/css/bootstrap*.css*
+python/input_methods/chewing/css/sweetalert2.min.css
+python/input_methods/chewing/js/bootstrap*.js*
+python/input_methods/chewing/js/jquery-3.6.1.min.js
+python/input_methods/chewing/js/jquery-loading-overlay-2.1.7/
+python/input_methods/chewing/js/jquery-ui-1.13.2/
+python/input_methods/chewing/js/sweetalert2.min.js
+
+# Python bytecode caches - regenerated automatically, not source
+__pycache__/
+*.pyc
+
+# Claude Code local tool settings - machine/session-specific, not project source
+.claude/settings.local.json
