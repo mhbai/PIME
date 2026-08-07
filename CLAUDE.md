@@ -97,15 +97,32 @@ powershell -NoProfile -Command "Get-Process -Name python -ErrorAction SilentlyCo
 
 ## v/r/s/f 快速選字（純邏輯改動，不碰字碼表，可自由分享）
 
-`references/liur_Trad.dict.yaml` 轉出來的字碼表（含 `ixv` 這類消歧義碼）雖然解決了選字問題，但那份表是嘸蝦米有版權碼表的衍生物，不能自由散佈。改成在 **`python\input_methods\cheliu\cheliu_ime.py`**（只有蝦米自己的檔案，完全不碰共用的 `cinbase`）做「按鍵轉譯」：候選字視窗開著、沒按 Ctrl/Shift 時，把 `v/r/s/f` 直接轉成對應的選字數字鍵字元（`v→'2' r→'3' s→'4' f→'5'`），再原封不動交給 `cinbase` 既有、完全沒改過的數字選字邏輯（`isInSelKeys`/`cbTS.selKeys.index()`/`candidateList[i]`）處理。
+`references/liur_Trad.dict.yaml` 轉出來的字碼表（含 `ixv` 這類消歧義碼）雖然解決了選字問題，但那份表是嘸蝦米有版權碼表的衍生物，不能自由散佈。改成完全放在 **`python\input_methods\cheliu\cheliu_ime.py`**（只有蝦米自己的檔案，完全不碰共用的 `cinbase`），用按鍵層級的技巧模擬出「字碼表裡真的有 `ixv` 對應到『曳』」的體感，但完全不用改字碼表：
 
-**關鍵發現：** `python\textService.py` 的 `KeyEvent` 是完全可變的普通物件（`charCode`/`keyCode` 就是一般 attribute，沒有 `@property`/`__slots__` 擋著），而且每次按鍵都是重新建構一個新實例，所以可以放心用 `copy.copy(keyEvent)` 複製一份、只改 `charCode`/`keyCode` 兩個欄位，其餘（`keyStates`，也就是 Shift/Ctrl 等修飾鍵狀態）完全保留原樣。`cinbase/__init__.py` 對 `keyEvent` 也只用到 `charCode`/`keyCode`/`isKeyDown()`/`isKeyToggled()`/`isPrintableChar()` 這五個成員，全部改一次就夠。
+**最終行為（v3）：** 候選字視窗開著、沒按 Ctrl/Shift 時，`v/r/s/f` 對應候選字清單裡第 2~5 個項目。按下去會：
+1. 把這個字母併進 `compositionChar`／`compositionString`（例如 `ix` 按 `v` 會變成組字區顯示「ＩＸＶ」，視覺上就像真的多打了一碼）
+2. 候選字清單直接窄化成**只剩使用者選的那一個字**（例如只剩「曳」）
+3. 但**不直接送出**——composition 保持在「已選定、等待確認」的狀態，跟輸入其它任何字一樣，要按空白鍵或 Enter 才會真正上字
 
-這個做法的好處，也是這次特地選它而不是直接改 `cinbase/__init__.py` 的原因：**`cinbase` 是給所有 cin 系輸入法（`checj`、`chedayi`...等）共用繼承的基底，改那邊即使包成設定開關，仍然是共用檔案的異動；改 `cheliu_ime.py` 則完全物理隔離在蝦米自己的模組裡，其它輸入法的程式碼一行都沒動到**，不需要額外的 config 開關就能保證不互相影響。
+這樣使用者的體感跟「字碼表裡本來就有 `ixv → 曳`」幾乎一樣：打 `ixv`、看到只剩曳可選、按空白上字，但實際上 `liu.cin`/`liu.json` 完全沒有 `ixv` 這個字碼，全部是 `cheliu_ime.py` 用按鍵攔截跟畫面顯示模擬出來的。
 
-已用真實的 `cinbase` 引擎 + 真實 `liu.json` 資料驗證過：打 `abi`（5 個候選字 `郎/郕/鄃/郞/鎆`），按 `s`（對應第 4 個）正確送出「郞」。
+如果選字後改變主意按了別的鍵（不是空白/Enter，例如想退格重打），會先把 `compositionChar`／`compositionString`／候選字清單完整還原回按 v/r/s/f **之前**的狀態，再讓那個按鍵照正常邏輯繼續處理（例如退格就會在「ix」狀態下正常刪掉一個字根）。
 
-**建議搭配動作：** 既然選字問題已經用純邏輯解決，`liu.cin`/`liu.json` 建議換回原廠版本（`liu.cin.bak`/`liu.json.bak`），整包（程式邏輯 + 原廠字碼表）才能真正自由分享，不牽涉版權問題。
+**這個做法的好處，也是這次特地選它而不是直接改 `cinbase/__init__.py` 的原因：**`cinbase` 是給所有 cin 系輸入法（`checj`、`chedayi`...等）共用繼承的基底，改那邊即使包成設定開關，仍然是共用檔案的異動；改 `cheliu_ime.py` 則完全物理隔離在蝦米自己的模組裡，其它輸入法的程式碼一行都沒動到，不需要額外的 config 開關就能保證不互相影響。
+
+已用真實的 `cinbase` 引擎 + 真實 `liu.json` 資料驗證過：打 `ix`（候選字 `我/曳`）按 `v` → 組字區變成「ＩＸＶ」、候選字窄化成只剩「曳」→ 按空白鍵正確送出「曳」；選字後改按退格 → 正確還原回「ix」狀態（候選字回到 `我/曳`）再正常刪字。`abi`（5 個候選字）按 `s` 一樣正常運作。
+
+**已還原成原廠字碼表：** `liu.cin`/`liu.json` 已換回原廠版本（`maxCharLength` 也還原成 `4`），RIME 轉換版另存成 `liu.cin.rime-derived`／`liu.json.rime-derived` 僅供本機參考、已加進 `.gitignore` 不會被 commit。整包（程式邏輯 + 原廠字碼表）現在可以自由分享，不牽涉版權問題。
+
+**踩到的坑 1：v/r/s/f 本身也是合法的蝦米字根字母，不能無條件轉譯成選字鍵。** 上線後發現「現」(`kmr`)、「剛」(`nber`) 這種碼尾剛好是 `v/r/s/f` 的字打不出來——因為打完 `km`（候選字視窗開啟）之後接著打 `r` 想組成 `kmr`，卻被直接攔截去選第 3 個候選字了。修法是在轉譯前多判斷一步：**只有「目前組字 + 這個字母」不可能再是任何更長合法碼的字首時，才當作選字鍵**；否則就讓它正常繼續組字。新增 `cinbase\cin.py` 的 `hasPrefix(prefix)`（`any(key.startswith(prefix) for key in self.chardefs)`，純附加、唯讀的資料查詢方法，不影響任何既有呼叫端；這是目前唯一還留在 `cinbase` 家族裡的異動，跟反查拼音功能已經完全搬到 `cheliu_ime.py` 不衝突，因為它只是個被動的資料查詢，沒有參與任何按鍵分派邏輯），在 `cheliu_ime.py` 裡改成 `if ch in QUICK_SELECT_KEYS and not self.cin.hasPrefix(self.compositionChar + ch):` 才處理。已用原廠字碼表資料驗證：`hasPrefix('kmr')`／`hasPrefix('nber')` 都是 `True`（正確判斷「還有更長的碼」不轉譯），`hasPrefix('abiv'/'abir'/'abis'/'abif')` 都是 `False`（原本能選字的案例不受影響）。
+
+**踩到的坑 2：一開始把 v/r/s/f 轉譯成數字選字鍵直接丟給 cinbase，會導致按下 v/r/s/f 當下就立刻上字**，跟這套輸入法「打完字要按空白鍵才上字」的一貫節奏不一致，會讓使用者覺得意外（`config.json` 的 `directCommitString` 其實是死設定，`cinbase` 完全沒讀，實際上字靠的是空白/Enter 觸發 `cinbase` 裡的送出邏輯）。改成「按 v/r/s/f 時記下 `self.pendingQuickSelectChar`，之後按空白/Enter 才由 `cheliu_ime.py` 自己呼叫 `self.cinbase.setOutputString(...)` 送出」解決了自動上字的問題。
+
+**踩到的坑 3：光是把候選字清單重新排序（讓選到的字排最前面）不夠，空白鍵送出的還是原本第一個候選字。** 原因是 **`cinbase` 每次 `onKeyDown` 只要 `compositionChar` 沒變，就會直接從字碼表重新算一份全新的候選清單**（`cinbase/__init__.py` 裡 `candidates = cbTS.cin.getCharDef(cbTS.compositionChar)`，在 `elif cbTS.cin.isInCharDef(cbTS.compositionChar) and ...:` 這個條件下每個按鍵都會重跑），我們排好的順序在下一次呼叫 `cinbase.onKeyDown` 時就會被蓋掉、回到原本順序。這是實際測試時才發現的坑，只靠重新排序完全解決不了，必須讓空白/Enter 這個確認鍵也完全繞過 `cinbase`、自己處理才行——這也是為什麼最終版乾脆把 `compositionChar` 一起延伸（變成「ix」+「v」=「ixv」），讓 `cinbase` 完全不會再去重新計算這個（不存在的）字碼的候選字，衝突自然就不存在了。
+
+**踩到的坑 4：按 v/r/s/f 之後候選字視窗直接消失，不是顯示窄化後的單一候選字。** 根本原因是 `python\textService.py` 的 `TextService.handleRequest()` 把每次按鍵的回覆設計成「這次改了什麼」的**增量封包**：`self.currentReply` 在每次處理完一個按鍵之後就會被清空(`handleRequest` 最後 `reply = self.currentReply; self.currentReply = {}`)，所以某個按鍵的回覆封包裡**只會包含這次按鍵過程中真的呼叫過 `setXxx()` 的欄位**，不會自動帶入前一個按鍵設定過的值。我們在 v/r/s/f 分支裡只呼叫了 `setCandidateList()`/`setCandidateCursor()`，沒有在同一次回覆裡重新呼叫 `setShowCandidates(True)`，導致這次的回覆封包裡根本沒有 `showCandidates` 這個欄位，前端收不到「候選字視窗要繼續開著」的訊號。修法是在 v/r/s/f 分支裡明確補上 `self.setShowCandidates(True)`。
+
+這個坑也暴露了先前測試方式的盲點：mock 測試時我是用自己寫的 lambda 取代 `setCandidateList`/`setCandidateCursor` 等方法來記錄呼叫記錄，檢查的是「程式內部狀態值對不對」（`compositionString`/`candidateList` 這些值确實是對的），但沒有檢查「實際送給客戶端的回覆封包裡有哪些欄位」——這正是問題所在，內部狀態正確不代表送出的封包完整。之後驗證要直接用繼承來的真正 `TextService.setXxx()` 方法（不要用自己的 lambda 蓋掉），並且每次按鍵前重置 `self.currentReply = {}`（模擬 `handleRequest` 的行為），再檢查 `self.currentReply` 這個實際回覆封包的完整內容，才能真正抓到這類「內部狀態對、但送出的封包缺欄位」的問題。
 
 ## 蝦米反查拼音功能（按 `` ` `` 反查拼音，用 libchewing 標注蝦米碼，支援詞）
 
@@ -114,14 +131,19 @@ powershell -NoProfile -Command "Get-Process -Name python -ErrorAction SilentlyCo
 **操作方式（v2，支援詞，取代最初只能查單一字的版本）：**
 - 可以連續打多個音節組成詞，例如 `fang3fu2`：libchewing 會用內建詞庫自動「回頭修正」，打完 `fang3` 先猜「訪」，接著打 `fu2` 會自動把整串修正成「彷彿」，跟真的在用新酷音打字的行為一樣。
 - 打字過程中**不會主動彈出候選字清單**（拿掉了 v1 版本「音節打完就自動展開候選字」的做法，因為那樣會讓使用者沒辦法連續打完整個詞）。想看某個字的其它候選字，自己按 **方向鍵 ↓**（對應 `ctx.handle_Down()`），跟真正的新酷音操作一致，可以在打詞的過程中隨時挑選/修正某個字。
-- 按 **Enter** 才是真正確定：把目前 buffer 內容（可能一個字、也可能一整個詞）送出，並且把裡面**每一個字**的蝦米碼都列出來（`setOutputString()` 裡逐字呼叫 `cbTS.cin.getCharEncode(ch)` 再串起來），而不是只查最後一個字。
+- 按 **Enter** 才是真正確定：把目前 buffer 內容（可能一個字、也可能一整個詞）送出，並且把裡面**每一個字**的蝦米碼都列出來，而不是只查最後一個字。
 - Backspace 統一直接呼叫 `ctx.handle_Backspace()`，一次刪一個字（`彷彿`→`訪`→空），空了才會退出反查模式；不用分「候選清單開著」跟「一般輸入中」兩種狀態處理。
 
-**相關程式：**
-- `cinbase\config.py` 的 `pinyinReverseLookup` 開關（預設 `False`）
-- `cheliu\config\config.json`（範本）跟 `%APPDATA%\PIME\cheliu\config.json`（實際生效複本，見上一節）都要設 `true`
-- `cinbase\cin.py` 的 `getShortestKey()`：候選字清單裡標注字碼用「最短的那一組」，跟確定送出時用的完整 `getCharEncode()`（會列出全部已知碼）不一樣
-- `cinbase\__init__.py`：`initPinyinChewingContext`／`handlePinyinLookupKey`／`updatePinyinCandidateList`／`resetPinyinLookupMode`，以及 `onKeyDown` 開頭的模式內按鍵分派、多功能前導字元第二個按鍵的新 `elif` 分支、`setOutputString` 裡新增的訊息區塊
+**架構：跟 v/r/s/f 一樣，完全只放在 `python\input_methods\cheliu\cheliu_ime.py`，`cinbase` 一行都沒改。** 這個功能原本是直接寫在 `cinbase/__init__.py` 共用引擎裡（連同一個 `pinyinReverseLookup` config 開關才能避免影響其它 cin 系輸入法），後來發現其實不需要碰 `cinbase`：`cheliu_ime.py` 裡的 `self` 跟 `cinbase` 方法收到的 `cbTS` 參數本來就是同一個物件，`self.compositionChar`、`self.multifunctionmode`、`self.showCandidates`、`self.cin` 這些狀態，還有 `TextService` 基底類別給的 `setCommitString`/`setCandidateList`/`showMessage` 等輸出方法，`cheliu_ime.py` 全部都能直接讀寫，不需要透過 `cinbase` 的程式碼。
+
+實際做法：
+- 觸發判斷完全在 `cheliu_ime.py` 自己的 `onKeyDown` 裡做：`self.multifunctionmode and self.compositionChar == '`'`（也就是 cinbase 既有、完全沒改過的多功能前導字元狀態）加上這個鍵是非 m/u/e 的字母，符合就攔截、**不呼叫** `self.cinbase.onKeyDown(...)`，自己接手處理。
+- `self.pinyinLookupMode` 為 `True` 時，`onKeyDown` 一開始就直接呼叫 `self.handlePinyinLookupKey(keyEvent)`，同樣完全不進 `cinbase`。
+- 送出結果時呼叫（不是修改）`self.cinbase.setOutputString(self, RCinTable, commitStr)` 沿用既有的簡繁轉換等共用邏輯，字碼提示訊息則自己直接組字串設定 `self.onKeyUpMessage`（逐字呼叫 `self.cin.getCharEncode(ch)`，這個方法本來就存在於 `cinbase\cin.py`，沒有為了這個功能新增或修改）。
+- 候選字標注用的「最短字碼」改成 `cheliu_ime.py` 裡的模組層級函式 `_shortest_key_for_char(chardefs, ch)`，直接吃 `self.cin.chardefs`，原本在 `cinbase\cin.py` 加的 `getShortestKey()` 已經拿掉。
+- `self.cinbase.isLetterChar(keyCode)`／`self.cinbase.resetComposition(self)` 這些是**呼叫**既有、未修改的 `cinbase` 方法（單純重用，不是修改），跟直接把邏輯寫進 `cinbase` 是兩回事。
+
+**最終狀態：`cinbase\__init__.py`、`cinbase\config.py` 完全恢復原狀，`cheliu\config\config.json` 也拿掉 `pinyinReverseLookup` 欄位**（功能變成蝦米固定內建行為，不再需要開關，因為已經沒有「共用檔案異動需要 config 開關擋住其它輸入法」這個顧慮了）。已用真正的 `CheLiuTextService` 類別（不是 mock 出來的假物件）完整跑過一輪：`` ` ``→進入多功能前導字元→打 `n` 觸發反查拼音模式→打 `ni3`→按 ↓ 看候選字→選字→按 Enter 確定並正確列出字碼，過程中一般打字（`ix`）跟 v/r/s/f 快速選字都不受影響。
 
 **實作時發現的 libchewing 行為細節（規劃階段沒查得到，是實際呼叫 DLL 才發現的）：**
 - `ChewingContext(syspath=..., userpath=...)` 的 `userpath` 必須是**檔案路徑**（例如 `.../chewing.sqlite3`），不是資料夾路徑；傳資料夾會讓 `chewing_new2` 回傳 NULL context（`ctx.ctx == 0`），後續所有查詢都會安靜地回傳 `-1`，沒有任何例外或錯誤訊息。

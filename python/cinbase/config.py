@@ -69,7 +69,6 @@ class CinBaseConfig:
         self.imeReverseLookup = False
         self.homophoneQuery = False
         self.selHCinType = 0
-        self.pinyinReverseLookup = False
         self.userExtendTable = False
         self.reLoadTable = False
         self.priorityExtendTable = False
