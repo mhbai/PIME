@@ -1,5 +1,7 @@
 # PIME 蝦米輸入法自訂版
 
+[![License: LGPL 2.1](https://img.shields.io/badge/License-LGPL%202.1-blue.svg)](./LICENSE)
+
 這是 [PIME](https://github.com/EasyIME/PIME)（Windows 中文輸入法框架，版本 `1.3.0-stable`）的客製化版本，針對內建的「蝦米」（Boshiamy／`cheliu`）輸入法新增了幾個功能。所有改動都是**純程式邏輯**，沒有修改任何有版權的字碼表資料，可以自由分享。
 
 這個 repo 只追蹤真正改過的檔案：`python\input_methods\cheliu\` 底下的蝦米模組本身，以及這份文件跟三支輔助腳本。PIME 安裝目錄底下其它所有東西——共用引擎 `cinbase\`、`python\libchewing\`、`python\opencc\`、「新酷音」模組（`python\input_methods\chewing\`）、核心管線程式（`server.py`、`textService.py`、`backends.json` 等）——全部沒有任何改動，跟官方安裝出來的版本一模一樣，所以都刻意不放進這個 repo。所有新功能需要用到的資料查詢（例如判斷某個字碼是不是更長字碼的字首、查詢拼音候選字）都是在 `cheliu_ime.py` 裡直接操作 `cinbase`／`libchewing` 本來就公開的屬性與 API 完成，不需要改動這些共用模組本身。
