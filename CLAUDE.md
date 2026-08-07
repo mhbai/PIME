@@ -30,7 +30,11 @@
 - `cinbase\json\`、`cinbase\data\`、`cinbase\icons\`、`cinbase\config\`（網頁設定介面）、`cinbase\tools\` 這些——這些是 PIME 原始安裝就有的東西（各輸入法共用的碼表資料、資源檔），**從頭到尾都沒被我們動過**，只是因為 PIME 的目錄設計把所有輸入法的碼表都集中放在這個共用資料夾，所以一開始 `git add` 時被一起掃進去，並非我們刻意選擇追蹤。
 - 包含 `cinbase\json\liu.json`、`cinbase\cin\liu.cin`——雖然內容是蝦米專屬的字碼表，但因為實體檔案位置也在 `cinbase\` 底下、而且內容跟官方一致，一併排除。
 
-蝦米新增的功能（v/r/s/f 快速選字、反查拼音）全部只靠讀取 `cinbase` 公開的屬性（`self.cin.chardefs`、`self.compositionChar`、`self.multifunctionmode` 等）跟呼叫既有方法（`self.cinbase.setOutputString(...)`、`self.cinbase.resetComposition(...)`）完成，程式碼本身完全寫在 `cheliu_ime.py` 裡，所以整個 `cinbase\` 資料夾對這個 repo 來說就是「新電腦裝官方版就會有」的東西，不需要我們額外提供。二進位檔（`PIMELauncher.exe`、DLL、Python 直譯器）跟第三方前端函式庫也都沒有追蹤，細節見 `.gitignore` 裡的註解。
+蝦米新增的功能（v/r/s/f 快速選字、反查拼音）全部只靠讀取 `cinbase` 公開的屬性（`self.cin.chardefs`、`self.compositionChar`、`self.multifunctionmode` 等）跟呼叫既有方法（`self.cinbase.setOutputString(...)`、`self.cinbase.resetComposition(...)`）完成，程式碼本身完全寫在 `cheliu_ime.py` 裡，所以整個 `cinbase\` 資料夾對這個 repo 來說就是「新電腦裝官方版就會有」的東西，不需要我們額外提供。
+
+**`python\libchewing\`（`ChewingContext`／`chewing.dll`／辭典資料）同樣完全沒追蹤**，理由一樣：反查拼音功能有 import 它（`from libchewing import ChewingContext, CHEWING_DATA_DIR, CHINESE_MODE, HALFSHAPE_MODE`），但只是呼叫既有 API，從沒改過裡面任何一行（`git log` 查過，只有最初整包匯入那次紀錄）。已經確認過官方 `installer.nsi` 的 Register 區塊會把 `python\libchewing\` 整個資料夾在**任一個** Python 輸入法被勾選時就無條件裝進去，跟「新酷音」這個獨立勾選框無關，所以新電腦裝官方版一樣會有一模一樣的複本。
+
+二進位檔（`PIMELauncher.exe`、DLL、Python 直譯器）跟第三方前端函式庫也都沒有追蹤，細節見 `.gitignore` 裡的註解。
 
 在新電腦上安裝的流程是「先裝官方 PIME 1.3.0-stable，再用 `git init` + `git reset --hard origin/master` 疊上這個 repo 的內容」，完整步驟寫在 `README.md`。
 

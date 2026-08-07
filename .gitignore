@@ -6,9 +6,13 @@ x86/
 x64/
 python/opencc/*.dll
 python/opencc/*.ocd
-python/libchewing/*.dll
-python/libchewing/data/*.dat
-python/libchewing/data/*.tab
+
+# libchewing wrapper (Python + chewing.dll + dictionary data) - cheliu_ime.py
+# imports this for the pinyin reverse-lookup feature but never modifies it.
+# Confirmed via installer.nsi that it's installed unconditionally whenever
+# any Python-based IME is selected (not gated on the chewing/新酷音 checkbox),
+# so a fresh official install already provides an identical copy.
+python/libchewing/
 
 # Vendored third-party front-end libraries bundled with chewing's config UI
 # pages (bootstrap / jquery / jquery-ui / sweetalert2) - not our code. Only
