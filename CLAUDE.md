@@ -88,3 +88,35 @@ powershell -NoProfile -Command "Get-Process -Name python -ErrorAction SilentlyCo
 - 新表最長字碼到 5 碼（原表最長 4 碼），因此把 `python\input_methods\cheliu\cheliu_ime.py` 裡的 `self.maxCharLength` 從 `4` 改成 `5`，否則新表裡約 1937 個 5 碼字根會因為超過原本上限而永遠打不出來
 
 若要復原成 PIME 原廠字碼表：把 `liu.cin.bak`／`liu.json.bak` 複製回 `liu.cin`／`liu.json`（去掉 `.bak`），並把 `maxCharLength` 改回 `4`。
+
+## 設定檔的真正生效位置：`%APPDATA%\PIME\<imeDirName>\config.json`
+
+**重要陷阱：** 每個 cin 系輸入法在 `python\input_methods\<ime>\config\config.json` 的那份，只是**第一次執行時的預設值範本**。`cinbase\config.py` 的 `CinBaseConfig.load()` 邏輯是：優先讀 `%APPDATA%\PIME\<imeDirName>\config.json`（使用者專屬複本），只有這份不存在或是空的，才會退而讀安裝目錄裡的範本。也就是說，**一旦電腦上已經跑過這套輸入法，`%APPDATA%` 底下就已經有一份複本，之後修改安裝目錄裡的 `config.json` 範本完全不會生效**，因為程式根本不會再去讀那份範本。
+
+實際踩到的例子：新增 `pinyinReverseLookup` 這個設定欄位時，改了 `python\input_methods\cheliu\config\config.json` 加上 `"pinyinReverseLookup": true`，但因為這台機器的 cheliu 早就跑過（`C:\Users\<user>\AppData\Roaming\PIME\cheliu\config.json` 已存在，日期是舊的），實際套用到 `cbTS.pinyinReverseLookup` 的還是 `CinBaseConfig` 裡的預設值 `False`（因為那份舊的 `%APPDATA%` 複本裡根本沒有這個欄位，`json.load()` 更新時自然不會補上）。症狀是功能完全沒反應，而且**沒有任何錯誤或例外**，很容易誤判成程式邏輯有問題，實際上只是設定沒套用到。
+
+**之後在 `cinbase/config.py` 裡新增任何設定欄位、並且需要某個已經在用的 IME 預設開啟時，記得同時手動修改 `%APPDATA%\PIME\<imeDirName>\config.json` 這份實際生效的複本**（不是只改安裝目錄裡的範本），或是刪掉那份複本讓它退回讀範本（但這樣會連使用者原本的其他自訂設定一起清掉，通常不建議）。
+
+## 蝦米反查拼音功能（按 `` ` `` 反查拼音，用 libchewing 標注蝦米碼，支援詞）
+
+在 `ix` 空白鍵/多功能前導字元系統基礎上疊加的新功能：composition 是空的時候按 `` ` ``（進入既有的「多功能前導字元」模式），接著打一般字母（非 `m`/`u`/`e`，那三個已經被 `` `M ``/`` `U ``/`` `E `` 用掉）會進入拼音反查模式，內部建立一個獨立的 `ChewingContext`（`python\libchewing\libchewing.py` 包的 `chewing.dll`），把打的字母當漢語拼音（`KBType=9`）餵給它。
+
+**操作方式（v2，支援詞，取代最初只能查單一字的版本）：**
+- 可以連續打多個音節組成詞，例如 `fang3fu2`：libchewing 會用內建詞庫自動「回頭修正」，打完 `fang3` 先猜「訪」，接著打 `fu2` 會自動把整串修正成「彷彿」，跟真的在用新酷音打字的行為一樣。
+- 打字過程中**不會主動彈出候選字清單**（拿掉了 v1 版本「音節打完就自動展開候選字」的做法，因為那樣會讓使用者沒辦法連續打完整個詞）。想看某個字的其它候選字，自己按 **方向鍵 ↓**（對應 `ctx.handle_Down()`），跟真正的新酷音操作一致，可以在打詞的過程中隨時挑選/修正某個字。
+- 按 **Enter** 才是真正確定：把目前 buffer 內容（可能一個字、也可能一整個詞）送出，並且把裡面**每一個字**的蝦米碼都列出來（`setOutputString()` 裡逐字呼叫 `cbTS.cin.getCharEncode(ch)` 再串起來），而不是只查最後一個字。
+- Backspace 統一直接呼叫 `ctx.handle_Backspace()`，一次刪一個字（`彷彿`→`訪`→空），空了才會退出反查模式；不用分「候選清單開著」跟「一般輸入中」兩種狀態處理。
+
+**相關程式：**
+- `cinbase\config.py` 的 `pinyinReverseLookup` 開關（預設 `False`）
+- `cheliu\config\config.json`（範本）跟 `%APPDATA%\PIME\cheliu\config.json`（實際生效複本，見上一節）都要設 `true`
+- `cinbase\cin.py` 的 `getShortestKey()`：候選字清單裡標注字碼用「最短的那一組」，跟確定送出時用的完整 `getCharEncode()`（會列出全部已知碼）不一樣
+- `cinbase\__init__.py`：`initPinyinChewingContext`／`handlePinyinLookupKey`／`updatePinyinCandidateList`／`resetPinyinLookupMode`，以及 `onKeyDown` 開頭的模式內按鍵分派、多功能前導字元第二個按鍵的新 `elif` 分支、`setOutputString` 裡新增的訊息區塊
+
+**實作時發現的 libchewing 行為細節（規劃階段沒查得到，是實際呼叫 DLL 才發現的）：**
+- `ChewingContext(syspath=..., userpath=...)` 的 `userpath` 必須是**檔案路徑**（例如 `.../chewing.sqlite3`），不是資料夾路徑；傳資料夾會讓 `chewing_new2` 回傳 NULL context（`ctx.ctx == 0`），後續所有查詢都會安靜地回傳 `-1`，沒有任何例外或錯誤訊息。
+- `set_maxChiSymbolLen(n)` 決定最多能組成幾個字的詞（目前設 10）；設成 1 的話每打完一個音節就會被強迫立刻結束，沒辦法連續打成詞。
+- 打完一個完整拼音音節（含聲調數字）後，libchewing 會直接把最常用的字自動填進 `buffer`（`cand_TotalChoice()` 還是 0），要看其它候選字必須自己呼叫 `handle_Down()`。
+- `handle_Enter()` 只有在「沒有候選字清單開著、也沒有打到一半的音節」時才會真的觸發 `commit_Check()`；候選字清單還開著、或音節還沒打完聲調就按 Enter，libchewing 會直接忽略，狀態不變（不會誤觸發、不需要額外防呆）。
+- **候選字清單開著的時候一定要先呼叫 `ctx.cand_close()`，才能呼叫 `clean_bopomofo_buf()`/`clean_preedit_buf()` 清空重來**；如果候選清單還開著就直接清緩衝區、接著打新的音節，libchewing 會把新按的字母誤判成是在對「舊的」候選清單按選字鍵，導致打出跟預期完全無關的字（實測過：候選清單開著時清緩衝區不呼叫 `cand_close()`，接著打 `ma3` 卻打出「擬」──那其實是前一次 `ni3` 候選清單裡的字）。這個問題只發生在「context 重複使用」時（`initPinyinChewingContext`／`resetPinyinLookupMode` 裡都已經加上 `cand_close()`），一般正常的 `handle_Backspace()` 不會有這個副作用。
+- `chewing_new`/`chewing_new2` 這類回傳指標的函式在 `libchewing.py` 裡沒有設定 `restype`，實測在 32-bit 直譯器下沒有造成數值錯誤（回傳的整數就是實際的 handle 值），但這是沒有明確保證的行為，日後若換 64-bit 直譯器要重新確認。

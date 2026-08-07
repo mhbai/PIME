@@ -32,5 +32,6 @@
     "autoMoveCursorInBrackets": false,
     "imeReverseLookup": false,
     "userExtendTable": false,
-    "reLoadTable": false
+    "reLoadTable": false,
+    "pinyinReverseLookup": true
 }

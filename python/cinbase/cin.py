@@ -102,6 +102,10 @@ class Cin(object):
         return [key for key, value in self.chardefs.items() if val in value][0]
 
 
+    def getShortestKey(self, val):
+        return min((key for key, value in self.chardefs.items() if val in value), key=len)
+
+
     def isInCharDef(self, key):
         return key in self.chardefs
 

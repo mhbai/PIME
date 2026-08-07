@@ -40,6 +40,7 @@ from .userphrase import userphrase
 from .emoji import emoji
 from .extendtable import extendtable
 from .config import SWITCH_LANG_WITH_BOTH_SHIFT, SWITCH_LANG_WITH_LEFT_SHIFT, SWITCH_LANG_WITH_RIGHT_SHIFT
+from libchewing import ChewingContext, CHEWING_DATA_DIR
 
 from .debug import Debug
 
@@ -114,6 +115,7 @@ class CinBase:
         cbTS.autoMoveCursorInBrackets = False
         cbTS.imeReverseLookup = False
         cbTS.homophoneQuery = False
+        cbTS.pinyinReverseLookup = False
         cbTS.userExtendTable = False
         cbTS.reLoadTable = False
         cbTS.priorityExtendTable = False
@@ -184,6 +186,13 @@ class CinBase:
         cbTS.homophoneStr = ""
         cbTS.isHomophoneChardefs = False
         cbTS.homophonecandidates = []
+
+        # 反查拼音 (輸入拼音以 libchewing 引擎查詢候選字，並標注目前輸入法的字碼)
+        cbTS.pinyinLookupMode = False
+        cbTS.pinyinChewingContext = None
+        cbTS.pinyinCandidates = []
+        cbTS.pinyinDisplayCandidates = []
+        cbTS.isPinyinChardefs = False
 
         cbTS.showMessageOnKeyUp = False
         cbTS.hideMessageOnKeyUp = False
@@ -296,6 +305,10 @@ class CinBase:
             del cbTS.extendtable
         if hasattr(cbTS, 'dsymbols'):
             del cbTS.dsymbols
+
+        # 釋放反查拼音用的 libchewing context
+        cbTS.pinyinLookupMode = False
+        cbTS.pinyinChewingContext = None
 
 
     # 使用者按下按鍵，在 app 收到前先過濾那些鍵是輸入法需要的。
@@ -432,6 +445,10 @@ class CinBase:
                 cbTS.showMessage(messagestr, cbTS.messageDurationTime)
             return True
 
+        # 反查拼音模式下，按鍵全部交給內嵌的 libchewing 引擎處理
+        if cbTS.pinyinReverseLookup and cbTS.pinyinLookupMode:
+            return self.handlePinyinLookupKey(cbTS, keyEvent, RCinTable)
+
         # NumPad 某些狀況允許輸入法處理
         if keyEvent.isKeyToggled(VK_NUMLOCK): # NumLock is on
             # if this key is Num pad 0-9, +, -, *, /, pass it back to the system
@@ -530,6 +547,17 @@ class CinBase:
                         if self.isNumberChar(keyCode):
                             cbTS.canUseSelKey = False
                     cbTS.compositionChar += charStr
+                elif cbTS.pinyinReverseLookup and self.isLetterChar(keyCode):
+                    # ` 之後接一般字母 (非 m/u/e) 且啟用反查拼音：進入拼音反查模式，
+                    # 這個按鍵組合原本沒有任何處理 (見上面 m/u/e 及符號/數字分支)，
+                    # 所以不會影響既有的 `M/`U/`E 功能
+                    cbTS.multifunctionmode = False
+                    cbTS.closemenu = False
+                    cbTS.compositionChar = ""
+                    cbTS.setCompositionString("")
+                    cbTS.pinyinLookupMode = True
+                    self.initPinyinChewingContext(cbTS)
+                    return self.handlePinyinLookupKey(cbTS, keyEvent, RCinTable)
             elif len(cbTS.compositionChar) > 1 and cbTS.multifunctionmode:
                 if cbTS.msymbols.isInCharDef(cbTS.compositionChar[1:] + charStr):
                     if cbTS.imeDirName == "chedayi":
@@ -2474,6 +2502,9 @@ class CinBase:
     # 切換到其他應用程式或其他原因，導致我們的輸入法被強制關閉，此時
     # forced 參數會是 True，在這種狀況下，要清除一些 buffer
     def onCompositionTerminated(self, cbTS, forced):
+        if cbTS.pinyinLookupMode:
+            self.resetPinyinLookupMode(cbTS)
+
         if not cbTS.showmenu and not cbTS.keepComposition:
             self.resetComposition(cbTS)
 
@@ -2683,6 +2714,7 @@ class CinBase:
         cbTS.homophoneStr = ''
         cbTS.isHomophoneChardefs = False
         cbTS.homophonecandidates = []
+        cbTS.pinyinLookupMode = False
         cbTS.selcandmode = False
         cbTS.lastCompositionCharLength = 0
 
@@ -2701,6 +2733,113 @@ class CinBase:
         cbTS.homophoneStr = ''
         cbTS.isHomophoneChardefs = False
         cbTS.homophonecandidates = []
+
+    # 建立/重用反查拼音用的 libchewing context (延遲建立，僅第一次進入反查模式時建立一次，
+    # 之後在同一次啟用期間重複使用，直到 onDeactivate 才釋放，避免每次進入反查都重載辭典)
+    def initPinyinChewingContext(self, cbTS):
+        if cbTS.pinyinChewingContext is None:
+            userdir = os.path.join(cbTS.cfg.getConfigDir(), "pinyin_userphrase")
+            os.makedirs(userdir, mode=0o700, exist_ok=True)
+            syspath = ";".join((userdir, CHEWING_DATA_DIR)).encode("UTF-8")
+            userpath = os.path.join(userdir, "chewing.sqlite3").encode("UTF-8")
+            ctx = ChewingContext(syspath=syspath, userpath=userpath)
+            ctx.set_maxChiSymbolLen(10)  # 最多可組成 10 字的詞，讓 libchewing 的詞庫回頭修正發揮作用
+            ctx.set_KBType(9)  # 漢語拼音，索引值來自 chewing 設定頁 keyboardNames 陣列
+            ctx.set_selKeys(cbTS.selKeys)
+            ctx.set_candPerPage(cbTS.candPerPage)
+            ctx.set_ChiEngMode(CHINESE_MODE)
+            ctx.set_ShapeMode(HALFSHAPE_MODE)
+            cbTS.pinyinChewingContext = ctx
+        else:
+            # 一定要先關掉候選字清單再清緩衝區，不然候選字清單若還開著，下次打字會被
+            # libchewing 誤判成是在對舊的候選清單按選字鍵，而不是重新輸入新的音節
+            cbTS.pinyinChewingContext.cand_close()
+            cbTS.pinyinChewingContext.clean_bopomofo_buf()
+            cbTS.pinyinChewingContext.clean_preedit_buf()
+
+    # 反查拼音模式下的按鍵處理，全部交給內嵌的 libchewing 引擎判斷。
+    # 打字時可以連續輸入多個音節組成詞 (libchewing 會用詞庫自動回頭修正，例如打完
+    # fang3 先猜「訪」，接著打 fu2 會自動修正成「彷彿」)；按方向鍵 ↓ 可以展開候選字清單
+    # 挑選/比對其它字的蝦米碼；按 Enter 才會真正確定，把目前 buffer 內容(可能一個字、
+    # 可能一個詞)送出，並列出裡面每一個字的蝦米碼。
+    def handlePinyinLookupKey(self, cbTS, keyEvent, RCinTable):
+        ctx = cbTS.pinyinChewingContext
+        keyCode = keyEvent.keyCode
+        charCode = keyEvent.charCode
+
+        if keyCode == VK_ESCAPE:
+            self.resetPinyinLookupMode(cbTS)
+            self.resetComposition(cbTS)
+            return True
+        elif keyCode == VK_BACK:
+            ctx.handle_Backspace()
+            if not ctx.buffer_Check() and not ctx.bopomofo_Check() and ctx.cand_TotalChoice() == 0:
+                self.resetPinyinLookupMode(cbTS)
+                self.resetComposition(cbTS)
+                return True
+        elif keyCode == VK_DOWN:
+            ctx.handle_Down()
+        elif keyCode == VK_RETURN:
+            ctx.handle_Enter()
+            if ctx.commit_Check():
+                commitStr = ctx.commit_String().decode("UTF-8")
+                cbTS.isPinyinChardefs = True
+                self.setOutputString(cbTS, RCinTable, commitStr)
+                self.resetPinyinLookupMode(cbTS)
+                self.resetComposition(cbTS)
+                return True
+        else:
+            ctx.handle_Default(charCode)
+
+        if ctx.cand_TotalChoice() > 0:
+            self.updatePinyinCandidateList(cbTS, ctx)
+        else:
+            cbTS.pinyinCandidates = []
+            cbTS.pinyinDisplayCandidates = []
+            cbTS.setShowCandidates(False)
+            cbTS.setCandidateList([])
+
+        compStr = ctx.buffer_String().decode("UTF-8") if ctx.buffer_Check() else ""
+        if ctx.bopomofo_Check():
+            bopomofoStr = ctx.bopomofo_String(None).decode("UTF-8")
+            pos = ctx.cursor_Current()
+            compStr = compStr[:pos] + bopomofoStr + compStr[pos:]
+        cbTS.setCompositionString("`" + compStr)
+
+        return True
+
+    # 重建候選字清單，並標注目前輸入法自己的字碼 (候選字視窗只能顯示單一字串，沒有另外
+    # 的註解欄位，所以直接把字碼併進顯示字串；實際上字仍用 pinyinCandidates 裡的原始
+    # 字元，不會把標註文字一起打出去)
+    def updatePinyinCandidateList(self, cbTS, ctx):
+        cbTS.pinyinCandidates = []
+        cbTS.pinyinDisplayCandidates = []
+        ctx.cand_Enumerate()
+        for i in range(ctx.cand_ChoicePerPage()):
+            if not ctx.cand_hasNext():
+                break
+            char = ctx.cand_String().decode("UTF-8")
+            cbTS.pinyinCandidates.append(char)
+            if cbTS.cin.isHaveKey(char):
+                code = cbTS.cin.getShortestKey(char)
+                cbTS.pinyinDisplayCandidates.append(char + "　" + code)
+            else:
+                cbTS.pinyinDisplayCandidates.append(char)
+        cbTS.setCandidateList(cbTS.pinyinDisplayCandidates)
+        cbTS.setCandidateCursor(0)
+        cbTS.setCandidatePage(0)
+        cbTS.setShowCandidates(True)
+
+    # 重置反查拼音模式 (不釋放 pinyinChewingContext 物件本身，那個只在 onDeactivate 時釋放)
+    def resetPinyinLookupMode(self, cbTS):
+        cbTS.pinyinLookupMode = False
+        cbTS.pinyinCandidates = []
+        cbTS.pinyinDisplayCandidates = []
+        cbTS.isPinyinChardefs = False
+        if cbTS.pinyinChewingContext is not None:
+            cbTS.pinyinChewingContext.cand_close()
+            cbTS.pinyinChewingContext.clean_bopomofo_buf()
+            cbTS.pinyinChewingContext.clean_preedit_buf()
 
     # 判斷數字鍵?
     def isNumberChar(self, keyCode):
@@ -2881,6 +3020,14 @@ class CinBase:
                 cbTS.isShowMessage = True
                 cbTS.showMessageOnKeyUp = True
                 cbTS.onKeyUpMessage = cbTS.cin.getCharEncode(commitStr)
+
+        if cbTS.pinyinReverseLookup and cbTS.isPinyinChardefs:
+            cbTS.isPinyinChardefs = False
+            if not cbTS.client.isUiLess:
+                cbTS.isShowMessage = True
+                cbTS.showMessageOnKeyUp = True
+                # commitStr 可能是一個字、也可能是反查拼音打出來的一個詞，逐字列出蝦米碼
+                cbTS.onKeyUpMessage = "　".join(cbTS.cin.getCharEncode(ch) for ch in commitStr)
 
         # 如果使用打繁出簡，就轉成簡體中文
         if cbTS.outputSimpChinese:
@@ -3167,6 +3314,9 @@ class CinBase:
         # 同音字查詢
         cbTS.homophoneQuery = cfg.homophoneQuery
         cbTS.selHCinType = cfg.selHCinType
+
+        # 反查拼音 (libchewing)
+        cbTS.pinyinReverseLookup = cfg.pinyinReverseLookup
 
         # 載入碼表時忽略 Unicode 私用區?
         cbTS.ignorePrivateUseArea = cfg.ignorePrivateUseArea
