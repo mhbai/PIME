@@ -36,5 +36,10 @@ python/input_methods/chewing/js/sweetalert2.min.js
 __pycache__/
 *.pyc
 
+# RIME-derived cheliu code table kept locally for reference only - it's a
+# derivative of Boshiamy's copyrighted code table and must not be committed
+python/cinbase/cin/liu.cin.rime-derived
+python/cinbase/json/liu.json.rime-derived
+
 # Claude Code local tool settings - machine/session-specific, not project source
 .claude/settings.local.json

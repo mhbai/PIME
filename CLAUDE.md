@@ -77,17 +77,15 @@ powershell -NoProfile -Command "Get-Process -Name python -ErrorAction SilentlyCo
 - 實際執行期讀取的檔案：`python\cinbase\json\liu.json`（`.cin` 用 `python\cinbase\tools\cintojson.py` 轉換產生，引擎只讀這份 JSON，不會去讀 `.cin`）
 - 改完 `.cin` 後必須執行 `python\python3\python.exe python\cinbase\tools\cintojson.py liu.cin` 重新產生 JSON，並重啟 PIME 後端（或切換掉再切回輸入法）才會生效，因為字碼表是啟動時載入後快取在記憶體中的。
 
-**目前狀態：字碼表已整份換成 RIME 版本（`references/liur_Trad.dict.yaml`）轉換而來**，取代原廠 PIME 內建的 `liu.cin`／`liu.json`。
+**目前狀態：用的是原廠 PIME 內建的 `liu.cin`／`liu.json`（stock，未修改）。**
 
-原因：官方嘸蝦米正式版支援用 `v r s f` 選第 2~5 候選字，但這套 PIME 的 `cheliu` 模組沒有實作這個選字機制（`cinbase/config.py` 的 `selKeys` 只有 `"1234567890"` 一種，不像 `chewing` 模組有多組可切換）。RIME 的字碼表用另一種等效做法解決同樣的問題：直接把消歧義用的按鍵（如 `v`）當作字碼的一部分寫進字典裡，例如「我」的碼是 `ix`，跟「曳」衝突，RIME 就多加一筆 `ixv → 曳`，讓使用者打 `ixv` 直接出「曳」不用選字。這是純資料表寫法，不需要改 PIME 引擎的程式邏輯，cin 格式本來就支援任意長度、多對一的碼。
+這中間有一段換表又換回來的歷史，記錄一下避免以後搞混：
+1. 一開始為了解決「打 `ix` 會撞到我/曳，正式版嘸蝦米可以用 `v` 選字，PIME 沒做這功能」的問題，把整份表換成用 RIME 的 `references/liur_Trad.dict.yaml`（嘸蝦米字碼表的衍生資料）轉換出來的版本，裡面刻意加了 `ixv → 曳` 這類靠 `vrsf` 接續字母消歧義的碼。轉換方式跟細節（含 `maxCharLength` 當時改成 5）仍留著紀錄在 git 歷史裡（commit `40cf4d8` 之前那次）。
+2. 後來發現這個做法的根本問題：那份轉換出來的表是嘸蝦米有版權碼表的衍生物，**不能自由分享/散佈**，違背了想把這些改動開源分享的初衷。
+3. 所以改成用「v/r/s/f 快速選字」這個**純邏輯**方案（見下一節），完全不需要動字碼表就能達到一樣的選字體驗，而且是完全獨立的 `cheliu_ime.py` 改動，不影響其它 cin 系輸入法。
+4. 邏輯方案驗證沒問題後，**把 `liu.cin`／`liu.json` 換回原廠版本**（用備份 `liu.cin.bak`／`liu.json.bak` 複製回去），`maxCharLength` 也改回 `4`。RIME 轉換版的表另存成 `liu.cin.rime-derived`／`liu.json.rime-derived`（僅供本機參考，**不要 commit 進 git**，因為那份仍然是衍生自嘸蝦米版權碼表）。
 
-轉換內容：
-- 備份：`python\cinbase\cin\liu.cin.bak`、`python\cinbase\json\liu.json.bak`（換表前的原始版本）
-- 新表：把 `references/liur_Trad.dict.yaml`（格式為「字\t字碼」，`~` 開頭的字碼代表次要/重複條目）逐行轉成 cin 的「字碼 字」格式，塞進原本 `liu.cin` 的 `%chardef` 區塊（開頭的 `%gen_inp`/`%ename`/`%cname`/`%selkey`/`%keyname` 沿用原檔，沒有改動），再用 `cintojson.py` 轉出新的 `liu.json`
-- 已驗證：新表裡 `ix` 對應 `['我', '曳']`（維持原本的候選字碰撞），`ixv` 對應 `['曳']`（可直接上字，不跳候選視窗），符合 RIME 表原本設計的行為
-- 新表最長字碼到 5 碼（原表最長 4 碼），因此把 `python\input_methods\cheliu\cheliu_ime.py` 裡的 `self.maxCharLength` 從 `4` 改成 `5`，否則新表裡約 1937 個 5 碼字根會因為超過原本上限而永遠打不出來
-
-若要復原成 PIME 原廠字碼表：把 `liu.cin.bak`／`liu.json.bak` 複製回 `liu.cin`／`liu.json`（去掉 `.bak`），並把 `maxCharLength` 改回 `4`。
+現在整包（`cinbase`/`cheliu_ime.py` 的程式邏輯 + 原廠 PIME 字碼表）都可以自由分享，沒有版權疑慮。
 
 ## 設定檔的真正生效位置：`%APPDATA%\PIME\<imeDirName>\config.json`
 
@@ -96,6 +94,18 @@ powershell -NoProfile -Command "Get-Process -Name python -ErrorAction SilentlyCo
 實際踩到的例子：新增 `pinyinReverseLookup` 這個設定欄位時，改了 `python\input_methods\cheliu\config\config.json` 加上 `"pinyinReverseLookup": true`，但因為這台機器的 cheliu 早就跑過（`C:\Users\<user>\AppData\Roaming\PIME\cheliu\config.json` 已存在，日期是舊的），實際套用到 `cbTS.pinyinReverseLookup` 的還是 `CinBaseConfig` 裡的預設值 `False`（因為那份舊的 `%APPDATA%` 複本裡根本沒有這個欄位，`json.load()` 更新時自然不會補上）。症狀是功能完全沒反應，而且**沒有任何錯誤或例外**，很容易誤判成程式邏輯有問題，實際上只是設定沒套用到。
 
 **之後在 `cinbase/config.py` 裡新增任何設定欄位、並且需要某個已經在用的 IME 預設開啟時，記得同時手動修改 `%APPDATA%\PIME\<imeDirName>\config.json` 這份實際生效的複本**（不是只改安裝目錄裡的範本），或是刪掉那份複本讓它退回讀範本（但這樣會連使用者原本的其他自訂設定一起清掉，通常不建議）。
+
+## v/r/s/f 快速選字（純邏輯改動，不碰字碼表，可自由分享）
+
+`references/liur_Trad.dict.yaml` 轉出來的字碼表（含 `ixv` 這類消歧義碼）雖然解決了選字問題，但那份表是嘸蝦米有版權碼表的衍生物，不能自由散佈。改成在 **`python\input_methods\cheliu\cheliu_ime.py`**（只有蝦米自己的檔案，完全不碰共用的 `cinbase`）做「按鍵轉譯」：候選字視窗開著、沒按 Ctrl/Shift 時，把 `v/r/s/f` 直接轉成對應的選字數字鍵字元（`v→'2' r→'3' s→'4' f→'5'`），再原封不動交給 `cinbase` 既有、完全沒改過的數字選字邏輯（`isInSelKeys`/`cbTS.selKeys.index()`/`candidateList[i]`）處理。
+
+**關鍵發現：** `python\textService.py` 的 `KeyEvent` 是完全可變的普通物件（`charCode`/`keyCode` 就是一般 attribute，沒有 `@property`/`__slots__` 擋著），而且每次按鍵都是重新建構一個新實例，所以可以放心用 `copy.copy(keyEvent)` 複製一份、只改 `charCode`/`keyCode` 兩個欄位，其餘（`keyStates`，也就是 Shift/Ctrl 等修飾鍵狀態）完全保留原樣。`cinbase/__init__.py` 對 `keyEvent` 也只用到 `charCode`/`keyCode`/`isKeyDown()`/`isKeyToggled()`/`isPrintableChar()` 這五個成員，全部改一次就夠。
+
+這個做法的好處，也是這次特地選它而不是直接改 `cinbase/__init__.py` 的原因：**`cinbase` 是給所有 cin 系輸入法（`checj`、`chedayi`...等）共用繼承的基底，改那邊即使包成設定開關，仍然是共用檔案的異動；改 `cheliu_ime.py` 則完全物理隔離在蝦米自己的模組裡，其它輸入法的程式碼一行都沒動到**，不需要額外的 config 開關就能保證不互相影響。
+
+已用真實的 `cinbase` 引擎 + 真實 `liu.json` 資料驗證過：打 `abi`（5 個候選字 `郎/郕/鄃/郞/鎆`），按 `s`（對應第 4 個）正確送出「郞」。
+
+**建議搭配動作：** 既然選字問題已經用純邏輯解決，`liu.cin`/`liu.json` 建議換回原廠版本（`liu.cin.bak`/`liu.json.bak`），整包（程式邏輯 + 原廠字碼表）才能真正自由分享，不牽涉版權問題。
 
 ## 蝦米反查拼音功能（按 `` ` `` 反查拼音，用 libchewing 標注蝦米碼，支援詞）
 
