@@ -25,18 +25,13 @@
 - `python\input_methods\cheliu\`（蝦米模組本身，所有新功能都寫在這裡）
 - `CLAUDE.md`、`README.md`、兩支 `register`/`unregister-pime.bat`
 
-**`cinbase\` 整個資料夾都不追蹤**（`git rm -r --cached python/cinbase/` + `.gitignore` 裡整條 `python/cinbase/` 排除），原則很簡單：**沒有實際改過的東西就不放進 git**。這包含：
-- `cinbase\__init__.py`／`config.py`／`cin.py` 這三個引擎程式檔——原本都各自被我們改過（反查拼音功能、`hasPrefix()`），後來全部搬到 `cheliu_ime.py` 或發現不需要，現在完全恢復原廠。
-- `cinbase\json\`、`cinbase\data\`、`cinbase\icons\`、`cinbase\config\`（網頁設定介面）、`cinbase\tools\` 這些——這些是 PIME 原始安裝就有的東西（各輸入法共用的碼表資料、資源檔），**從頭到尾都沒被我們動過**，只是因為 PIME 的目錄設計把所有輸入法的碼表都集中放在這個共用資料夾，所以一開始 `git add` 時被一起掃進去，並非我們刻意選擇追蹤。
-- 包含 `cinbase\json\liu.json`、`cinbase\cin\liu.cin`——雖然內容是蝦米專屬的字碼表，但因為實體檔案位置也在 `cinbase\` 底下、而且內容跟官方一致，一併排除。
+原則很簡單：**沒有實際改過的東西就不放進 git**。除了上面列的這幾樣，PIME 安裝目錄底下其它所有東西——`cinbase\` 共用引擎（含 `__init__.py`／`config.py`／`cin.py`、字碼表資料、網頁設定介面）、`python\libchewing\`、`python\opencc\`、`python\input_methods\chewing\`（新酷音模組）、核心管線程式（`server.py`、`serviceManager.py`、`textService.py`、`keycodes.py`、`backends.json`、`version.txt`、`python\input_methods\__init__.py`）、二進位檔（`PIMELauncher.exe`、DLL、Python 直譯器）跟第三方前端函式庫——全部都**沒有追蹤**，因為全部都沒被我們改過，逐一用 `git log -- <path>` 確認過，都只有最初整包匯入時的那一次紀錄，之後再也沒有變動過。
 
-蝦米新增的功能（v/r/s/f 快速選字、反查拼音）全部只靠讀取 `cinbase` 公開的屬性（`self.cin.chardefs`、`self.compositionChar`、`self.multifunctionmode` 等）跟呼叫既有方法（`self.cinbase.setOutputString(...)`、`self.cinbase.resetComposition(...)`）完成，程式碼本身完全寫在 `cheliu_ime.py` 裡，所以整個 `cinbase\` 資料夾對這個 repo 來說就是「新電腦裝官方版就會有」的東西，不需要我們額外提供。
+`cinbase\__init__.py`／`config.py`／`cin.py` 這三個引擎程式檔一度被我們改過（反查拼音功能、`hasPrefix()`），但後來全部搬到 `cheliu_ime.py` 或發現不需要，現在完全恢復原廠，所以也一併取消追蹤。蝦米新增的功能（v/r/s/f 快速選字、反查拼音）全部只靠讀取 `cinbase` 公開的屬性（`self.cin.chardefs`、`self.compositionChar`、`self.multifunctionmode` 等）跟呼叫既有方法（`self.cinbase.setOutputString(...)`、`self.cinbase.resetComposition(...)`）完成，反查拼音則是直接 import `python\libchewing` 提供的 `ChewingContext` API 來用，程式碼本身完全寫在 `cheliu_ime.py` 裡——沒有一行改動落在 `cinbase\`、`libchewing\`、`chewing\` 或任何核心管線檔案上。
 
-**`python\libchewing\`（`ChewingContext`／`chewing.dll`／辭典資料）同樣完全沒追蹤**，理由一樣：反查拼音功能有 import 它（`from libchewing import ChewingContext, CHEWING_DATA_DIR, CHINESE_MODE, HALFSHAPE_MODE`），但只是呼叫既有 API，從沒改過裡面任何一行（`git log` 查過，只有最初整包匯入那次紀錄）。已經確認過官方 `installer.nsi` 的 Register 區塊會把 `python\libchewing\` 整個資料夾在**任一個** Python 輸入法被勾選時就無條件裝進去，跟「新酷音」這個獨立勾選框無關，所以新電腦裝官方版一樣會有一模一樣的複本。
+已經確認過官方 `installer.nsi` 的 Register 區塊，`python\libchewing\` 跟 `python\opencc\` 在**任一個** Python 輸入法被勾選時就會無條件裝進去（`File /r ... "..\python\*.*"` 萬用複製），跟「新酷音」這個獨立勾選框無關，所以新電腦裝官方版就會有一模一樣的複本，不需要我們額外提供。
 
-**`python\opencc\`（繁簡轉換）也是同樣狀況**，`cinbase\__init__.py` 頂端有 `import opencc`（`outputSimpChinese` 這類功能會用到），一樣只呼叫既有 API、從沒改過內容，而且也是被 `installer.nsi` 那段無條件的萬用複製（`File /r ... "..\python\*.*"`）掃進去，所以一併移除追蹤。
-
-二進位檔（`PIMELauncher.exe`、DLL、Python 直譯器）跟第三方前端函式庫也都沒有追蹤，細節見 `.gitignore` 裡的註解。
+**`.gitignore` 是 allowlist 寫法**（先 `/*` 全部忽略，再一路 `!` 白名單放行到 `python/input_methods/cheliu/`），不是逐項列出要排除什麼的 denylist。這樣官方安裝程式未來新增的任何東西（新的輸入法模組、新的共用檔案）都會自動被排除，不用記得回來更新 `.gitignore`。
 
 在新電腦上安裝的流程是「先裝官方 PIME 1.3.0-stable，再用 `git init` + `git reset --hard origin/master` 疊上這個 repo 的內容」，完整步驟寫在 `README.md`。
 

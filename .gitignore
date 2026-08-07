@@ -1,33 +1,28 @@
-# Bundled third-party binaries / runtime - not our source, no meaningful diffs
-python/python3/
-PIMELauncher.exe
-Uninstall.exe
-x86/
-x64/
+# This repo only tracks what we've actually modified for the cheliu (蝦米)
+# input method: the cheliu module itself, our own docs, and the two helper
+# scripts. Everything else in this PIME installation - cinbase, libchewing,
+# opencc, the chewing (新酷音) module, core plumbing (server.py,
+# textService.py, backends.json, ...), the bundled Python runtime, compiled
+# DLLs, vendored front-end libraries - is untouched, byte-identical to what
+# a fresh official 1.3.0-stable install already provides. See README.md for
+# the install procedure (official installer + git overlay of this repo).
+#
+# Implemented as an allowlist (ignore everything, then re-include exactly
+# what's tracked) so anything new the official installer adds later is
+# excluded by default, without needing to remember to add it here.
+/*
+!/.gitignore
+!/CLAUDE.md
+!/README.md
+!/register-pime.bat
+!/unregister-pime.bat
+!/python/
 
-# opencc (Traditional/Simplified Chinese conversion) - cinbase imports this
-# for outputSimpChinese-style features but it's never modified. Same
-# unconditional Register-section install as libchewing (see below).
-python/opencc/
+/python/*
+!/python/input_methods/
 
-# libchewing wrapper (Python + chewing.dll + dictionary data) - cheliu_ime.py
-# imports this for the pinyin reverse-lookup feature but never modifies it.
-# Confirmed via installer.nsi that it's installed unconditionally whenever
-# any Python-based IME is selected (not gated on the chewing/新酷音 checkbox),
-# so a fresh official install already provides an identical copy.
-python/libchewing/
-
-# Vendored third-party front-end libraries bundled with chewing's config UI
-# pages (bootstrap / jquery / jquery-ui / sweetalert2) - not our code. Only
-# relevant if this ever tracks anything under python/input_methods/chewing/
-# again; nothing there is currently modified either.
-python/input_methods/chewing/css/bootstrap*.css*
-python/input_methods/chewing/css/sweetalert2.min.css
-python/input_methods/chewing/js/bootstrap*.js*
-python/input_methods/chewing/js/jquery-3.6.1.min.js
-python/input_methods/chewing/js/jquery-loading-overlay-2.1.7/
-python/input_methods/chewing/js/jquery-ui-1.13.2/
-python/input_methods/chewing/js/sweetalert2.min.js
+/python/input_methods/*
+!/python/input_methods/cheliu/
 
 # Python bytecode caches - regenerated automatically, not source
 __pycache__/
@@ -38,12 +33,3 @@ __pycache__/
 
 # Editor swap files
 *.swp
-
-# PIME's shared cinbase engine (code + every cin-based IME's data tables) -
-# none of it is modified, it's identical to what the official installer
-# provides. cheliu's own additions (v/r/s/f quick-select's prefix check,
-# the pinyin reverse-lookup message formatting) are implemented entirely in
-# python/input_methods/cheliu/cheliu_ime.py by reading cinbase's public
-# attributes (self.cin.chardefs, etc.), so nothing under cinbase/ needs to
-# be tracked at all - a fresh official install already provides it.
-python/cinbase/
