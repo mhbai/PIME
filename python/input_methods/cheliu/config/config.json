@@ -27,7 +27,7 @@
     "selWildcardType": 1,
     "candMaxItems": 100,
     "showPhrase": false,
-    "sortByPhrase": true,
+    "sortByPhrase": false,
     "compositionBufferMode": false,
     "autoMoveCursorInBrackets": false,
     "imeReverseLookup": false,
