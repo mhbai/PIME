@@ -153,9 +153,9 @@ powershell -NoProfile -Command "Get-Process -Name python -ErrorAction SilentlyCo
 
 這個坑也暴露了先前測試方式的盲點：mock 測試時我是用自己寫的 lambda 取代 `setCandidateList`/`setCandidateCursor` 等方法來記錄呼叫記錄，檢查的是「程式內部狀態值對不對」（`compositionString`/`candidateList` 這些值确實是對的），但沒有檢查「實際送給客戶端的回覆封包裡有哪些欄位」——這正是問題所在，內部狀態正確不代表送出的封包完整。之後驗證要直接用繼承來的真正 `TextService.setXxx()` 方法（不要用自己的 lambda 蓋掉），並且每次按鍵前重置 `self.currentReply = {}`（模擬 `handleRequest` 的行為），再檢查 `self.currentReply` 這個實際回覆封包的完整內容，才能真正抓到這類「內部狀態對、但送出的封包缺欄位」的問題。
 
-## 蝦米反查拼音功能（按 `` ` `` 反查拼音，用 libchewing 標注蝦米碼，支援詞）
+## 蝦米反查拼音功能（按 `` `h `` 反查拼音，用 libchewing 標注蝦米碼，支援詞）
 
-在 `ix` 空白鍵/多功能前導字元系統基礎上疊加的新功能：composition 是空的時候按 `` ` ``（進入既有的「多功能前導字元」模式），接著打一般字母（非 `m`/`u`/`e`，那三個已經被 `` `M ``/`` `U ``/`` `E `` 用掉）會進入拼音反查模式，內部建立一個獨立的 `ChewingContext`（`python\libchewing\libchewing.py` 包的 `chewing.dll`），把打的字母當漢語拼音（`KBType=9`）餵給它。
+在 `ix` 空白鍵/多功能前導字元系統基礎上疊加的新功能：composition 是空的時候按 `` ` ``（進入既有的「多功能前導字元」模式），接著按 `h`（固定用這個字母當「漢語」拼音的進入標記，詳見下面「觸發鍵設計」一節）會進入拼音反查模式，內部建立一個獨立的 `ChewingContext`（`python\libchewing\libchewing.py` 包的 `chewing.dll`），把接下來打的字母當漢語拼音（`KBType=9`）餵給它。
 
 **操作方式（v2，支援詞，取代最初只能查單一字的版本）：**
 - 可以連續打多個音節組成詞，例如 `fang3fu2`：libchewing 會用內建詞庫自動「回頭修正」，打完 `fang3` 先猜「訪」，接著打 `fu2` 會自動把整串修正成「彷彿」，跟真的在用新酷音打字的行為一樣。
@@ -166,13 +166,13 @@ powershell -NoProfile -Command "Get-Process -Name python -ErrorAction SilentlyCo
 **架構：跟 v/r/s/f 一樣，完全只放在 `python\input_methods\cheliu\cheliu_ime.py`，`cinbase` 一行都沒改。** 這個功能原本是直接寫在 `cinbase/__init__.py` 共用引擎裡（連同一個 `pinyinReverseLookup` config 開關才能避免影響其它 cin 系輸入法），後來發現其實不需要碰 `cinbase`：`cheliu_ime.py` 裡的 `self` 跟 `cinbase` 方法收到的 `cbTS` 參數本來就是同一個物件，`self.compositionChar`、`self.multifunctionmode`、`self.showCandidates`、`self.cin` 這些狀態，還有 `TextService` 基底類別給的 `setCommitString`/`setCandidateList`/`showMessage` 等輸出方法，`cheliu_ime.py` 全部都能直接讀寫，不需要透過 `cinbase` 的程式碼。
 
 實際做法：
-- 觸發判斷完全在 `cheliu_ime.py` 自己的 `onKeyDown` 裡做：`self.multifunctionmode and self.compositionChar == '`'`（也就是 cinbase 既有、完全沒改過的多功能前導字元狀態）加上這個鍵是非 m/u/e 的字母，符合就攔截、**不呼叫** `self.cinbase.onKeyDown(...)`，自己接手處理。
+- 觸發判斷完全在 `cheliu_ime.py` 自己的 `onKeyDown` 裡做：`self.multifunctionmode and self.compositionChar == '`'`（也就是 cinbase 既有、完全沒改過的多功能前導字元狀態）加上這個鍵是 `h`，符合就攔截、**不呼叫** `self.cinbase.onKeyDown(...)`，自己接手處理（細節見下面「觸發鍵設計」一節）。
 - `self.pinyinLookupMode` 為 `True` 時，`onKeyDown` 一開始就直接呼叫 `self.handlePinyinLookupKey(keyEvent)`，同樣完全不進 `cinbase`。
 - 送出結果時呼叫（不是修改）`self.cinbase.setOutputString(self, RCinTable, commitStr)` 沿用既有的簡繁轉換等共用邏輯，字碼提示訊息則自己直接組字串設定 `self.onKeyUpMessage`（逐字呼叫 `self.cin.getCharEncode(ch)`，這個方法本來就存在於 `cinbase\cin.py`，沒有為了這個功能新增或修改）。
 - 候選字標注用的「最短字碼」改成 `cheliu_ime.py` 裡的模組層級函式 `_shortest_key_for_char(chardefs, ch)`，直接吃 `self.cin.chardefs`，原本在 `cinbase\cin.py` 加的 `getShortestKey()` 已經拿掉。
 - `self.cinbase.isLetterChar(keyCode)`／`self.cinbase.resetComposition(self)` 這些是**呼叫**既有、未修改的 `cinbase` 方法（單純重用，不是修改），跟直接把邏輯寫進 `cinbase` 是兩回事。
 
-**最終狀態：`cinbase\__init__.py`、`cinbase\config.py` 完全恢復原狀，`cheliu\config\config.json` 也拿掉 `pinyinReverseLookup` 欄位**（功能變成蝦米固定內建行為，不再需要開關，因為已經沒有「共用檔案異動需要 config 開關擋住其它輸入法」這個顧慮了）。已用真正的 `CheLiuTextService` 類別（不是 mock 出來的假物件）完整跑過一輪：`` ` ``→進入多功能前導字元→打 `n` 觸發反查拼音模式→打 `ni3`→按 ↓ 看候選字→選字→按 Enter 確定並正確列出字碼，過程中一般打字（`ix`）跟 v/r/s/f 快速選字都不受影響。
+**最終狀態：`cinbase\__init__.py`、`cinbase\config.py` 完全恢復原狀，`cheliu\config\config.json` 也拿掉 `pinyinReverseLookup` 欄位**（功能變成蝦米固定內建行為，不再需要開關，因為已經沒有「共用檔案異動需要 config 開關擋住其它輸入法」這個顧慮了）。已用真正的 `CheLiuTextService` 類別（不是 mock 出來的假物件）完整跑過一輪：`` ` ``→進入多功能前導字元→打 `h` 進入反查拼音模式→打 `ni3`→按 ↓ 看候選字→選字→按 Enter 確定並正確列出字碼，過程中一般打字（`ix`）跟 v/r/s/f 快速選字都不受影響。
 
 **實作時發現的 libchewing 行為細節（規劃階段沒查得到，是實際呼叫 DLL 才發現的）：**
 - `ChewingContext(syspath=..., userpath=...)` 的 `userpath` 必須是**檔案路徑**（例如 `.../chewing.sqlite3`），不是資料夾路徑；傳資料夾會讓 `chewing_new2` 回傳 NULL context（`ctx.ctx == 0`），後續所有查詢都會安靜地回傳 `-1`，沒有任何例外或錯誤訊息。
@@ -191,12 +191,14 @@ powershell -NoProfile -Command "Get-Process -Name python -ErrorAction SilentlyCo
 
 已用真正的 `CheLiuTextService` 類別（不是 mock）完整驗證：`` `ni3 ``→Enter 送出「妳」，`onKeyUp()` 回覆封包裡有 `showMessage`、`duration=60`；接著按任意一般字母鍵（例如 `a`），同一次 `onKeyDown()` 回覆封包裡同時有 `hideMessage: True` 和這個字母正常開始組字的欄位（`compositionString`／`candidateList`／`showCandidates`），兩者互不影響。
 
-**m/u/e 開頭拼音（例如「明」ming2）打不出來的問題，用連按兩次 `` ` `` 解決。** 單一 `` ` `` 後面接的字母如果是 `m`/`u`/`e`，會被上面那條排除清單擋下來、原封不動交給 cinbase，因為那三個字母已經被既有的 `` `M ``（開啟設定選單）／`` `U ``（Unicode 編碼輸入）／`` `E ``（emoji 選單）用掉了——這是 cinbase 共用的既有功能，不能為了反查拼音去改掉（會影響其它所有 cin 系輸入法）。所以碰到 `ming2` 這種開頭字母剛好是 m/u/e 的拼音，原本沒有辦法觸發反查拼音，只會誤觸發設定選單。
+**觸發鍵設計：固定用 `` `h `` 進入反查拼音，取代最初「大部分字母直接觸發、m/u/e 要用額外按鍵序列」的雙軌規則。** 最初的版本是單一 `` ` `` 後面直接接要查的拼音字母（例如 `` `n `` 進入、查 `ni3`），但 `m`/`u`/`e` 這三個字母已經被既有的 `` `M ``（開啟設定選單）／`` `U ``（Unicode 編碼輸入）／`` `E ``（emoji 選單）用掉了——這是 cinbase 共用的既有功能，不能為了反查拼音去改掉（會影響其它所有 cin 系輸入法）。所以碰到 `ming2` 這種開頭字母剛好是 m/u/e 的拼音，原本沒有辦法直接觸發反查拼音，只會誤觸發設定選單。中間試過用「連續按兩次 `` ` ``」當作 m/u/e 專屬的替代觸發方式，但那樣變成兩套規則並存（大部分字母直接觸發，少數三個字母要多按一次 `` ` ``），使用者回饋不夠直覺、容易忘記規則。
 
-解法是在 `cheliu_ime.py` 裡新增一個「強制進入」的替代觸發方式：**連續按兩次 `` ` ``**，下一個字母不管是不是 m/u/e 都一律當作反查拼音的開頭字母。這個按鍵序列在 cinbase 原本的多功能前導字元邏輯裡本來就是死路——`` ` `` 之後再按一次 `` ` ``，因為 backtick 本身被 `isSymbolsChar()` 判定為符號鍵（`VK_OEM_3 = 0xC0` 落在 `isSymbolsChar()` 判斷的 `0xBA~0xDF` 範圍內），會被原封不動併入 `compositionChar`（變成 ``` `` ```），cinbase 要連按滿三次 `` ` ``（變成 ```` ``` ````）才會識別成「直接開選單」的捷徑（`compositionChar == '```'` 時轉成 `` `M ``）；兩次之後、接著打的如果不是第三個 `` ` ``，cinbase 完全沒有處理，所以可以安全攔截、自己接手，一樣不用改 `cinbase`。
+最終改成只保留一套規則：**固定用 `` ` `` 再接 `h` 進入反查拼音**，`h` 純粹當作「這裡要開始打漢語拼音了」的標記鍵，本身不算進拼音內容，所以不管接下來真正要查的拼音開頭是什麼字母都適用——包含 `m`/`u`/`e`（例如「明」`` `h `` + `ming2`），也包含 `h` 自己（例如「好」`` `h `` + `hao3`，第二個 `h` 這次被當成拼音內容，不是另一次觸發）。代價是原本「單一 `` ` `` 後面接其它字母直接觸發」的捷徑拿掉了，變成固定都要多打一個 `h`，但換來規則統一、不用分案例記憶，使用者認為這樣更直覺。
 
-實作用一個新的旗標 `self.pinyinLookupArmed`：
-- 偵測到第二個 `` ` ``（`self.multifunctionmode and self.compositionChar == '`' and keyEvent.keyCode == VK_OEM_3`）時，不呼叫 `self.cinbase.onKeyDown(...)`，自己清空 `compositionChar`／`compositionString`、退出 `multifunctionmode`，設定 `pinyinLookupArmed = True`，直接 `return True` 吃掉這個按鍵——因為這一下按的是 `` ` `` 本身，不是拼音字母，沒有東西可以餵給 libchewing，要等下一個按鍵才真正進入反查模式。
-- 下一次按鍵進來時，如果 `pinyinLookupArmed` 是 `True`：先清掉旗標，如果這個鍵是字母（不檢查是不是 m/u/e），就跟原本單一 `` ` `` 觸發反查拼音完全一樣的方式進入 `pinyinLookupMode`、把這個字母餵給 `handlePinyinLookupKey`；如果不是字母（例如打錯了按 Esc 或退格），就單純解除武裝、讓這個按鍵照一般邏輯往下處理——此時 composition 已經是空的，等同從頭開始，不會留下殘留狀態。
+`h` 這個字母在 cinbase 的多功能前導字元邏輯裡完全沒被用到（只有 m/u/e 被佔用，見上面），所以可以安全挪來當標記鍵，不用改 `cinbase`，單一 `` ` `` 後面接其它字母（非 h/m/u/e）現在會恢復成 PIME 原本「沒有反應」的死路行為——這本來就是反查拼音功能出現之前的樣子，不算退步，只是拿掉了原本的直接觸發捷徑。
 
-這樣原本的 `` `M ``／`` `U ``／`` `E `` 跟單一 `` ` `` + 非 m/u/e 字母的反查拼音捷徑完全不受影響，`ming2`（明）只是多了「連按兩次 `` ` ``」這個額外步驟：`` ``ming2 `` → Enter 送出「明」。
+實作用一個旗標 `self.pinyinLookupArmed`：
+- 偵測到 `` `h ``（`self.multifunctionmode and self.compositionChar == '`' and chr(keyEvent.charCode).lower() == 'h'`）時，不呼叫 `self.cinbase.onKeyDown(...)`，自己清空 `compositionChar`／`compositionString`、退出 `multifunctionmode`，設定 `pinyinLookupArmed = True`，直接 `return True` 吃掉這個按鍵——因為這一下按的是標記鍵 `h` 本身，不是拼音字母，沒有東西可以餵給 libchewing，要等下一個按鍵才真正進入反查模式。
+- 下一次按鍵進來時，如果 `pinyinLookupArmed` 是 `True`：先清掉旗標，如果這個鍵是字母（不檢查是不是 m/u/e/h，此時已經脫離 cinbase 的多功能前導字元狀態，不會再跟 `` `M ``/`` `U ``/`` `E `` 衝突），就進入 `pinyinLookupMode`、把這個字母餵給 `handlePinyinLookupKey`；如果不是字母（例如打錯了按 Esc 或退格），就單純解除武裝、讓這個按鍵照一般邏輯往下處理——此時 composition 已經是空的，等同從頭開始，不會留下殘留狀態。
+
+已用真正的 `CheLiuTextService` 類別（不是 mock）驗證過：單一 `` `m ``／`` `u ``／`` `e `` 仍正常開啟設定選單／Unicode 輸入／emoji 選單（不受影響）；`` `h `` + `ming2` + Enter 正確送出「明」；`` `h `` + `hao3` + Enter 正確送出「好」（驗證 h 同時當標記鍵跟拼音內容不會互相干擾）；`` `h `` + `ni3` + Enter 正確送出「妳」（一般非 m/u/e/h 開頭拼音不受影響）；單一 `` ` `` 後面直接接 `n`（不先按 `h`）確認不會觸發反查拼音，回到死路行為。

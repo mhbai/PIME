@@ -31,8 +31,10 @@ from libchewing import ChewingContext, CHEWING_DATA_DIR, CHINESE_MODE, HALFSHAPE
 # 跟其它字一樣仍要按空白鍵才會真正上字，才不會讓使用者感覺「怎麼沒按空白就跳出去了」。
 QUICK_SELECT_KEYS = {'v': 1, 'r': 2, 's': 3, 'f': 4}
 
-# 反查拼音功能觸發鍵：` 之後接的字母 (m/u/e 已經被既有的 `M/`U/`E 功能用掉)
-PINYIN_LOOKUP_EXCLUDED_KEYS = ('m', 'u', 'e')
+# 反查拼音功能觸發鍵：` 之後接 h (代表「漢語」拼音)。固定用這一個字母，不管接下來
+# 實際要打的拼音開頭是什麼字母 (含 m/u/e，也含 h 本身，例如「好」hao3)，統一只有這
+# 一種進入方式，不會跟 cinbase 既有的 `M/`U/`E 功能衝突，規則也比較單純好記。
+PINYIN_LOOKUP_TRIGGER_KEY = 'h'
 
 # 反查拼音送出後的字碼提示訊息：改成「按下任一鍵才消失」而不是計時器到期就自動關閉
 # (見 onKeyUp/onKeyDown)。這裡先用一個夠長的秒數把訊息撐著，真正的關閉是靠下一次
@@ -172,40 +174,28 @@ class CheLiuTextService(TextService):
                 self.setCandidateList(self.pendingQuickSelectOriginalCandidateList)
                 self.setCandidateCursor(0)
 
-        # 反查拼音的進入點：`（cinbase 既有的多功能前導字元模式）之後接一般字母
-        # (非 m/u/e，那三個已經被 `M/`U/`E 用掉)。這個按鍵組合在 cinbase 原本的邏輯裡
-        # 完全沒有處理 (打了也不會有反應)，所以在這裡攔截、自己接手，不會影響
-        # `M/`U/`E 原本的功能，也完全不需要修改 cinbase。
+        # 反查拼音的進入點：`（cinbase 既有的多功能前導字元模式）之後接 h。這個按鍵
+        # 組合在 cinbase 原本的邏輯裡完全沒有處理 (打了也不會有反應)，所以在這裡攔截、
+        # 自己接手，不會影響 `M/`U/`E 原本的功能，也完全不需要修改 cinbase。
+        # h 本身只是進入反查拼音模式的標記鍵，不會被當成拼音的一部分餵給 libchewing，
+        # 所以不管接下來真正要打的拼音開頭是什麼字母(含 m/u/e，也含 h 本身，例如
+        # 「好」hao3)都適用，不用像之前那樣為了閃開 `M/`U/`E 另外搞一套按鍵序列。
+        # h 鍵本身先「武裝」反查拼音模式，不馬上進入(因為這個按鍵不是拼音字母，沒東西
+        # 可以餵給 libchewing)；真正進入要等下一個按鍵。
         if (self.multifunctionmode and self.compositionChar == '`'
                 and keyEvent.isPrintableChar() and self.cinbase.isLetterChar(keyEvent.keyCode)
-                and chr(keyEvent.charCode).lower() not in PINYIN_LOOKUP_EXCLUDED_KEYS):
-            self.multifunctionmode = False
-            self.compositionChar = ''
-            self.setCompositionString('')
-            self.pinyinLookupMode = True
-            self.initPinyinChewingContext()
-            return self.handlePinyinLookupKey(keyEvent)
-
-        # 反查拼音的「強制」進入點：連按兩次 `，用來輸入 m/u/e 開頭的拼音(例如
-        # 「明」ming2)，不然這三個字母單獨接在第一個 ` 後面已經被 cinbase 原本的
-        # `M/`U/`E 功能用掉(見上面那個分支的排除清單)，會撞在一起。連續兩個 ` 在
-        # cinbase 原本的多功能前導字元邏輯裡，只是第三個 ` 按下去才會變成開選單的
-        # 捷徑(``` -> `M)，單純按兩次、接著打別的字母，原本也是沒人處理的死路，所以
-        # 在這裡攔截、自己接手，一樣不需要修改 cinbase。
-        # 第二個 ` 本身先「武裝」反查拼音模式，不馬上進入(因為這個按鍵不是拼音字母，
-        # 沒東西可以餵給 libchewing)；真正進入要等下一個按鍵。
-        if (self.multifunctionmode and self.compositionChar == '`'
-                and keyEvent.keyCode == VK_OEM_3):
+                and chr(keyEvent.charCode).lower() == PINYIN_LOOKUP_TRIGGER_KEY):
             self.multifunctionmode = False
             self.compositionChar = ''
             self.setCompositionString('')
             self.pinyinLookupArmed = True
             return True
 
-        # 武裝後的下一個按鍵：不管是不是 m/u/e，都當作反查拼音的第一個字母餵給
-        # libchewing。如果這個按鍵不是字母(例如使用者按錯又按了 Esc/退格)，就單純
-        # 解除武裝、讓這個按鍵照一般邏輯處理(此時 composition 已經是空的，等同從頭
-        # 開始，不會有殘留狀態)。
+        # 武裝後的下一個按鍵：當作反查拼音的第一個字母餵給 libchewing (不管是不是
+        # m/u/e/h，這時候已經脫離 cinbase 的多功能前導字元狀態，不會再跟 `M/`U/`E
+        # 衝突)。如果這個按鍵不是字母(例如使用者按錯又按了 Esc/退格)，就單純解除武裝、
+        # 讓這個按鍵照一般邏輯處理(此時 composition 已經是空的，等同從頭開始，不會
+        # 有殘留狀態)。
         if self.pinyinLookupArmed:
             self.pinyinLookupArmed = False
             if keyEvent.isPrintableChar() and self.cinbase.isLetterChar(keyEvent.keyCode):
