@@ -190,3 +190,13 @@ powershell -NoProfile -Command "Get-Process -Name python -ErrorAction SilentlyCo
 **踩到的坑：`showMessageOnKeyUp` 這個旗標不能整個拿掉，因為它同時被 `cinbase.filterKeyUp()` 拿來當作「這次要不要真的呼叫 `onKeyUp()`」的閘門**（`filterKeyUp()` 最後幾行：`isLangModeChanged`／`isShapeModeChanged`／`isSelKeysChanged`／`showMessageOnKeyUp`／`hideMessageOnKeyUp` 任一個為真才會 `return True`，否則直接 `return False`，那一次按鍵的 `onKeyUp()` 根本不會被呼叫）。一開始把 `showMessageOnKeyUp` 整個拿掉、只用自己的 `pinyinCodeMessagePending`，寫完後直覺應該沒問題，但這個新旗標 `cinbase` 完全不認得，`filterKeyUp()` 判斷不到任何一個已知旗標為真，會回傳 `False`，導致 Enter 送出那一下的 `onKeyUp()` 從來沒被呼叫過，訊息完全不會顯示（内部狀態看起來一切正確，但實際送出的事件被前一關擋掉了，跟先前 v/r/s/f「候選字視窗消失」那個坑本質上是同一種問題）。修法：`showMessageOnKeyUp` 還是要在送出時設成 `True`，純粹拿來讓 `filterKeyUp()` 放行；`onKeyUpMessage` 留空字串，`onKeyUp()` 裡處理完自己的訊息後要記得把 `showMessageOnKeyUp` 重新設回 `False`，再呼叫 `self.cinbase.onKeyUp(self, keyEvent)`，不然 cinbase 自己的 `onKeyUp()` 會看到這個旗標還是 `True`，又跳出來重複執行一次（雖然 `onKeyUpMessage` 是空字串、cinbase 那段實際上不會真的呼叫 `showMessage()`，但沒清乾淨終究是隱患）。
 
 已用真正的 `CheLiuTextService` 類別（不是 mock）完整驗證：`` `ni3 ``→Enter 送出「妳」，`onKeyUp()` 回覆封包裡有 `showMessage`、`duration=60`；接著按任意一般字母鍵（例如 `a`），同一次 `onKeyDown()` 回覆封包裡同時有 `hideMessage: True` 和這個字母正常開始組字的欄位（`compositionString`／`candidateList`／`showCandidates`），兩者互不影響。
+
+**m/u/e 開頭拼音（例如「明」ming2）打不出來的問題，用連按兩次 `` ` `` 解決。** 單一 `` ` `` 後面接的字母如果是 `m`/`u`/`e`，會被上面那條排除清單擋下來、原封不動交給 cinbase，因為那三個字母已經被既有的 `` `M ``（開啟設定選單）／`` `U ``（Unicode 編碼輸入）／`` `E ``（emoji 選單）用掉了——這是 cinbase 共用的既有功能，不能為了反查拼音去改掉（會影響其它所有 cin 系輸入法）。所以碰到 `ming2` 這種開頭字母剛好是 m/u/e 的拼音，原本沒有辦法觸發反查拼音，只會誤觸發設定選單。
+
+解法是在 `cheliu_ime.py` 裡新增一個「強制進入」的替代觸發方式：**連續按兩次 `` ` ``**，下一個字母不管是不是 m/u/e 都一律當作反查拼音的開頭字母。這個按鍵序列在 cinbase 原本的多功能前導字元邏輯裡本來就是死路——`` ` `` 之後再按一次 `` ` ``，因為 backtick 本身被 `isSymbolsChar()` 判定為符號鍵（`VK_OEM_3 = 0xC0` 落在 `isSymbolsChar()` 判斷的 `0xBA~0xDF` 範圍內），會被原封不動併入 `compositionChar`（變成 ``` `` ```），cinbase 要連按滿三次 `` ` ``（變成 ```` ``` ````）才會識別成「直接開選單」的捷徑（`compositionChar == '```'` 時轉成 `` `M ``）；兩次之後、接著打的如果不是第三個 `` ` ``，cinbase 完全沒有處理，所以可以安全攔截、自己接手，一樣不用改 `cinbase`。
+
+實作用一個新的旗標 `self.pinyinLookupArmed`：
+- 偵測到第二個 `` ` ``（`self.multifunctionmode and self.compositionChar == '`' and keyEvent.keyCode == VK_OEM_3`）時，不呼叫 `self.cinbase.onKeyDown(...)`，自己清空 `compositionChar`／`compositionString`、退出 `multifunctionmode`，設定 `pinyinLookupArmed = True`，直接 `return True` 吃掉這個按鍵——因為這一下按的是 `` ` `` 本身，不是拼音字母，沒有東西可以餵給 libchewing，要等下一個按鍵才真正進入反查模式。
+- 下一次按鍵進來時，如果 `pinyinLookupArmed` 是 `True`：先清掉旗標，如果這個鍵是字母（不檢查是不是 m/u/e），就跟原本單一 `` ` `` 觸發反查拼音完全一樣的方式進入 `pinyinLookupMode`、把這個字母餵給 `handlePinyinLookupKey`；如果不是字母（例如打錯了按 Esc 或退格），就單純解除武裝、讓這個按鍵照一般邏輯往下處理——此時 composition 已經是空的，等同從頭開始，不會留下殘留狀態。
+
+這樣原本的 `` `M ``／`` `U ``／`` `E `` 跟單一 `` ` `` + 非 m/u/e 字母的反查拼音捷徑完全不受影響，`ming2`（明）只是多了「連按兩次 `` ` ``」這個額外步驟：`` ``ming2 `` → Enter 送出「明」。

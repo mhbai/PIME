@@ -65,6 +65,7 @@ class CheLiuTextService(TextService):
 
         # 反查拼音 (輸入拼音以內嵌的 libchewing 引擎查詢候選字，並標注蝦米碼)
         self.pinyinLookupMode = False
+        self.pinyinLookupArmed = False
         self.pinyinChewingContext = None
         self.pinyinCandidates = []
         self.pinyinDisplayCandidates = []
@@ -122,6 +123,7 @@ class CheLiuTextService(TextService):
         self.cinbase.onDeactivate(self)
         # 釋放反查拼音用的 libchewing context
         self.pinyinLookupMode = False
+        self.pinyinLookupArmed = False
         self.pinyinChewingContext = None
         self.pinyinCodeMessagePending = False
         self.pinyinCodeMessageShowing = False
@@ -183,6 +185,33 @@ class CheLiuTextService(TextService):
             self.pinyinLookupMode = True
             self.initPinyinChewingContext()
             return self.handlePinyinLookupKey(keyEvent)
+
+        # 反查拼音的「強制」進入點：連按兩次 `，用來輸入 m/u/e 開頭的拼音(例如
+        # 「明」ming2)，不然這三個字母單獨接在第一個 ` 後面已經被 cinbase 原本的
+        # `M/`U/`E 功能用掉(見上面那個分支的排除清單)，會撞在一起。連續兩個 ` 在
+        # cinbase 原本的多功能前導字元邏輯裡，只是第三個 ` 按下去才會變成開選單的
+        # 捷徑(``` -> `M)，單純按兩次、接著打別的字母，原本也是沒人處理的死路，所以
+        # 在這裡攔截、自己接手，一樣不需要修改 cinbase。
+        # 第二個 ` 本身先「武裝」反查拼音模式，不馬上進入(因為這個按鍵不是拼音字母，
+        # 沒東西可以餵給 libchewing)；真正進入要等下一個按鍵。
+        if (self.multifunctionmode and self.compositionChar == '`'
+                and keyEvent.keyCode == VK_OEM_3):
+            self.multifunctionmode = False
+            self.compositionChar = ''
+            self.setCompositionString('')
+            self.pinyinLookupArmed = True
+            return True
+
+        # 武裝後的下一個按鍵：不管是不是 m/u/e，都當作反查拼音的第一個字母餵給
+        # libchewing。如果這個按鍵不是字母(例如使用者按錯又按了 Esc/退格)，就單純
+        # 解除武裝、讓這個按鍵照一般邏輯處理(此時 composition 已經是空的，等同從頭
+        # 開始，不會有殘留狀態)。
+        if self.pinyinLookupArmed:
+            self.pinyinLookupArmed = False
+            if keyEvent.isPrintableChar() and self.cinbase.isLetterChar(keyEvent.keyCode):
+                self.pinyinLookupMode = True
+                self.initPinyinChewingContext()
+                return self.handlePinyinLookupKey(keyEvent)
 
         # 候選字視窗開著、沒按 Ctrl/Shift 的情況下，按 v/r/s/f 選候選字清單裡第 2~5 個
         # 項目。為了讓使用者感覺就像字碼表裡真的有「ix + v = ixv 對應曳」這樣的字碼，
@@ -391,6 +420,7 @@ class CheLiuTextService(TextService):
         TextService.onCompositionTerminated(self, forced)
         if self.pinyinLookupMode:
             self.resetPinyinLookupMode()
+        self.pinyinLookupArmed = False
         self.pendingQuickSelectChar = None
         self.cinbase.onCompositionTerminated(self, forced)
 
