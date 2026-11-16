@@ -392,28 +392,40 @@ class CheLiuTextService(TextService):
     # handle_Right() 是直接整頁翻頁(頭尾相接、會循環，例如最後一頁按右鍵會繞回第一
     # 頁)，handle_Up() 是直接把整個候選字清單關掉，handle_Down() 則完全沒有效果——
     # 沒有一個在做「移動醒目提示到清單裡的上一/下一個字」，所以兩段式選字(游標移動
-    # +確認)要自己在這裡做：清單裡還有上一個/下一個字就直接移動游標；已經是清單這
-    # 一頁的第一個/最後一個字，才呼叫 handle_Left()/handle_Right() 換頁(這兩個已經
-    # 實測確認在清單開啟時就是換頁，不是移動詞的游標)，換頁後游標落在新的一頁的最後
-    # 一個(往左/上換頁時)或第一個(往右/下換頁時)，跟 cinbase 自己選單系統的左右鍵
-    # 換頁邏輯一致。上下鍵跟左右鍵用同一套規則，沒有另外做成「以列為單位」跳動，因為
-    # 反查拼音的候選字清單在畫面上就是單純一直排下去的清單，不是像設定選單那樣的
-    # 多欄網格。
+    # +確認)要自己在這裡做。
+    #
+    # 候選字清單在畫面上是以 self.candPerRow 欄的網格排列(跟 cinbase 自己的選單系統
+    # 用同一個設定值，透過 customizeUI(candPerRow=...) 告訴前端要排成幾欄)，所以左右
+    # 鍵跟上下鍵移動的方向不一樣：左右鍵移到網格裡「同一列」的前一個/後一個字(一次移
+    # 動 1 格)，上下鍵移到「同一欄」的前一列/後一列(一次移動 candPerRow 格)，分別對應
+    # 畫面上左右跟上下的視覺位置，不是都當成同一種「前一個/後一個」處理。清單裡還有
+    # 上一個/下一個字(依方向跳對應的格數)就直接移動游標；已經到清單這一頁的邊界(左右
+    # 鍵到第一個/最後一個，上下鍵到第一列/最後一列)，才呼叫 handle_Left()/
+    # handle_Right() 換頁(這兩個已經實測確認在清單開啟時就是換頁，不是移動詞的游
+    # 標)，換頁後游標落在新的一頁的最後一個(往左/上換頁時)或第一個(往右/下換頁時)，
+    # 跟 cinbase 自己選單系統的左右鍵換頁邏輯一致。
     def movePinyinCandidateCursor(self, ctx, keyCode):
         candCursor = self.candidateCursor
         candCount = len(self.pinyinDisplayCandidates)
         forward = keyCode in (VK_DOWN, VK_RIGHT)
+        step = self.candPerRow if keyCode in (VK_UP, VK_DOWN) else 1
 
         if forward:
-            if candCursor + 1 < candCount:
-                candCursor += 1
+            if candCursor + step < candCount:
+                candCursor += step
+            elif candCursor < candCount - 1:
+                # 上下鍵跳列跳過頭(最後一列字數不足一整列)，先停在這一頁最後一個字，
+                # 不要還沒走到底就急著換頁。
+                candCursor = candCount - 1
             else:
                 ctx.handle_Right()
                 self.updatePinyinCandidateList(ctx)
                 return
         else:
-            if candCursor > 0:
-                candCursor -= 1
+            if candCursor - step >= 0:
+                candCursor -= step
+            elif candCursor > 0:
+                candCursor = 0
             else:
                 ctx.handle_Left()
                 self.updatePinyinCandidateList(ctx)

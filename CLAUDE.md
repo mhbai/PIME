@@ -274,6 +274,45 @@ if candidateOpen and keyCode == VK_RETURN:
 
 已用真正的 `CheLiuTextService` 類別（不是 mock）完整驗證過：打 `yi4`（候選字清單總共 215 個字，遠超過一頁）按 ↓ 展開第一頁 9 個字（`意/義/易/議/亦/益/異/藝/億`）；按 → 游標從 0 移到 1、再按 ↓ 移到 2、按 ↑ 退回 1（確認上下左右鍵在清單內移動時用的是同一套規則）；從第一頁最前面（游標 0）按 ← 正確換頁到最後一頁（8 個字，游標自動落在該頁最後一個，索引 7）；在最後一頁連續按 → 最後會循環繞回第一頁（索引 0），之後再按 → 可以正常累加到索引 8；按 Enter 正確選定游標所在的候選字（索引 8＝「億」），候選字清單關閉、`compositionString` 更新成「`億」；再按一次 Enter 正確送出 `commitString="億"`、`pinyinLookupMode` 恢復 `False`。另外也驗證過這個改動不影響既有行為：Esc 兩段式（清單開著時先按 ← 移動游標，再按 Esc 只關閉清單、`pinyinLookupMode` 仍是 `True`，再按一次 Esc 才真正離開）、候選字清單開啟時 Backspace 一樣能正常刪字、候選字清單**關閉**時 ←/→ 仍然是移動詞的游標（例如 `fang3fu2` 按兩次 ← 把游標移到第一個字再按 ↓，正確展開「彷彿/仿佛」整詞候選字，不是被新的選字游標邏輯攔截）。
 
+**後續調整：上下鍵跟左右鍵的選字方向應該不一樣，不能都當成「下一個/上一個」處理。** 上面第一版圖個簡單，上下左右四個鍵全部共用同一套「+1/-1」規則，使用者實測回報這樣不對——候選字清單在畫面上其實是排成多欄的網格（跟 `cinbase` 自己的選單系統一樣，用 `self.candPerRow` 這個既有設定值透過 `customizeUI(candPerRow=...)` 告訴前端要排成幾欄，預設 3 欄），左右鍵理論上應該是在「同一列」裡移動、上下鍵應該是在「同一欄」裡移動，兩者是不同方向，不該共用同一套步進值。
+
+修法：`movePinyinCandidateCursor()` 依按鍵決定每次移動的步進值，左右鍵還是一次 1 格，上下鍵改成一次 `self.candPerRow` 格（對齊畫面上的視覺欄位）：
+```python
+def movePinyinCandidateCursor(self, ctx, keyCode):
+    candCursor = self.candidateCursor
+    candCount = len(self.pinyinDisplayCandidates)
+    forward = keyCode in (VK_DOWN, VK_RIGHT)
+    step = self.candPerRow if keyCode in (VK_UP, VK_DOWN) else 1
+
+    if forward:
+        if candCursor + step < candCount:
+            candCursor += step
+        elif candCursor < candCount - 1:
+            candCursor = candCount - 1
+        else:
+            ctx.handle_Right()
+            self.updatePinyinCandidateList(ctx)
+            return
+    else:
+        if candCursor - step >= 0:
+            candCursor -= step
+        elif candCursor > 0:
+            candCursor = 0
+        else:
+            ctx.handle_Left()
+            self.updatePinyinCandidateList(ctx)
+            self.setCandidateCursor(len(self.pinyinDisplayCandidates) - 1)
+            return
+
+    self.setCandidateCursor(candCursor)
+    self.setShowCandidates(True)
+```
+多出來的 `elif candCursor < candCount - 1: candCursor = candCount - 1`（以及反方向的 `elif candCursor > 0: candCursor = 0`）是為了處理「這一頁最後一列字數不足一整列」的情況：`candPerPage=9`、`candPerRow=3` 時剛好三整列沒問題，但換頁後最後一頁常常不是 9 的倍數（實測 `yi4` 的最後一頁只有 8 個字，排成 3/3/2 三列），這時候從第二列（索引 3~5）按 ↓ 直接跳 3 格會落到索引 6~8，但索引 8 根本不存在（`candCount=8`），如果不處理會直接誤判成「已經到底、要換頁」——所以先檢查「跳完整步是否還在清單範圍內」，不行的話但清單還沒真的走到底，就先停在最後一個字，而不是跳過去才發現錯誤，真的已經停在最後一個字時才去換頁。
+
+`self.candPerRow` 是 `cinbase` 既有的屬性（`applyConfig()` 時從使用者設定 `cfg.candPerRow` 套用進來，`client.isUiLess` 的情況下會強制變成 1，這種情況下上下鍵就會跟左右鍵一樣變成一次 1 格，等於是網格退化成單欄清單時自然得到的正確結果，不需要另外特判）。
+
+已用真正的 `CheLiuTextService` 類別（`candPerRow=3`，非 UiLess 模式）重新驗證：打 `yi4` 展開候選字清單（9 個字一頁），游標 0 按 → 變 1（左右鍵一次 1 格）；游標 1 按 ↓ 變 4（上下鍵一次 3 格，`1+3=4`）；游標 4 按 ↑ 變回 1；游標 1 按 ← 變回 0。從游標 0 按 ← 正確換頁到最後一頁（8 個字），游標落在新一頁最後一個（索引 7）；在只有 8 個字的最後一頁，游標 7 按 ↑（`7-3=4`，仍在範圍內）正確移到索引 4，不是用整頁長度算錯。接著從索引 4 連續按 → 9 次：先在這一頁內一路移動到索引 7，下一次按 → 因為再跳一步會超出範圍（`7+1=8`，`candCount=8`）才正確觸發換頁，繞回第一頁索引 0，之後正常累加到索引 5，全部跟手算的步驟一致。
+
 **架構：跟 v/r/s/f 一樣，完全只放在 `python\input_methods\cheliu\cheliu_ime.py`，`cinbase` 一行都沒改。** 這個功能原本是直接寫在 `cinbase/__init__.py` 共用引擎裡（連同一個 `pinyinReverseLookup` config 開關才能避免影響其它 cin 系輸入法），後來發現其實不需要碰 `cinbase`：`cheliu_ime.py` 裡的 `self` 跟 `cinbase` 方法收到的 `cbTS` 參數本來就是同一個物件，`self.compositionChar`、`self.multifunctionmode`、`self.showCandidates`、`self.cin` 這些狀態，還有 `TextService` 基底類別給的 `setCommitString`/`setCandidateList`/`showMessage` 等輸出方法，`cheliu_ime.py` 全部都能直接讀寫，不需要透過 `cinbase` 的程式碼。
 
 實際做法：
