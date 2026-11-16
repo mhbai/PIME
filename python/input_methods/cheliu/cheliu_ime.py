@@ -182,26 +182,40 @@ class CheLiuTextService(TextService):
         # 「好」hao3)都適用，不用像之前那樣為了閃開 `M/`U/`E 另外搞一套按鍵序列。
         # h 鍵本身先「武裝」反查拼音模式，不馬上進入(因為這個按鍵不是拼音字母，沒東西
         # 可以餵給 libchewing)；真正進入要等下一個按鍵。
+        #
+        # 這裡絕對不能把 compositionString 設成空字串：目前 compositionBufferMode
+        # 是 False，setCompositionString() 寫的就是 TSF 當下真正在編輯中的那個
+        # composition，不是獨立的內部緩衝區。真正的 TSF 用戶端(不是我們這個離線
+        # mock 測試用的假 client)看到 composition 變空字串，會直接把這個 composition
+        # session 結束掉，進而呼叫回我們的 onCompositionTerminated(forced=True)，
+        # 把 pinyinLookupArmed 重設回 False——結果就是「按了 `h，前導功能卻直接結束，
+        # 沒有進入反查拼音模式」，因為武裝旗標在下一個按鍵送到之前就已經被清掉了。
+        # 改成顯示 "`H" 當作武裝中的提示文字，composition 全程都不會變空，就不會
+        # 觸發這個問題。
         if (self.multifunctionmode and self.compositionChar == '`'
                 and keyEvent.isPrintableChar() and self.cinbase.isLetterChar(keyEvent.keyCode)
                 and chr(keyEvent.charCode).lower() == PINYIN_LOOKUP_TRIGGER_KEY):
             self.multifunctionmode = False
             self.compositionChar = ''
-            self.setCompositionString('')
+            self.setCompositionString('`H')
             self.pinyinLookupArmed = True
             return True
 
         # 武裝後的下一個按鍵：當作反查拼音的第一個字母餵給 libchewing (不管是不是
         # m/u/e/h，這時候已經脫離 cinbase 的多功能前導字元狀態，不會再跟 `M/`U/`E
-        # 衝突)。如果這個按鍵不是字母(例如使用者按錯又按了 Esc/退格)，就單純解除武裝、
-        # 讓這個按鍵照一般邏輯處理(此時 composition 已經是空的，等同從頭開始，不會
-        # 有殘留狀態)。
+        # 衝突)。如果這個按鍵不是字母(例如使用者按錯又按了 Esc/退格)，就明確完整重置
+        # composition 並吃掉這個按鍵，等同取消整個反查拼音流程，回到完全空白的狀態
+        # (不要只是靜悄悄地解除武裝、讓按鍵照一般邏輯處理——那樣 compositionChar 會是
+        # ''、但 compositionString 還殘留著上面設的 "`H"，兩邊對不起來，容易留下顯示
+        # 卡住的殘影)。
         if self.pinyinLookupArmed:
             self.pinyinLookupArmed = False
             if keyEvent.isPrintableChar() and self.cinbase.isLetterChar(keyEvent.keyCode):
                 self.pinyinLookupMode = True
                 self.initPinyinChewingContext()
                 return self.handlePinyinLookupKey(keyEvent)
+            self.cinbase.resetComposition(self)
+            return True
 
         # 候選字視窗開著、沒按 Ctrl/Shift 的情況下，按 v/r/s/f 選候選字清單裡第 2~5 個
         # 項目。為了讓使用者感覺就像字碼表裡真的有「ix + v = ixv 對應曳」這樣的字碼，
