@@ -168,11 +168,32 @@ powershell -NoProfile -Command "Get-Process -Name python -ErrorAction SilentlyCo
 
 在 `ix` 空白鍵/多功能前導字元系統基礎上疊加的新功能：composition 是空的時候按 `` ` ``（進入既有的「多功能前導字元」模式），接著按 `h`（固定用這個字母當「漢語」拼音的進入標記，詳見下面「觸發鍵設計」一節）會進入拼音反查模式，內部建立一個獨立的 `ChewingContext`（`python\libchewing\libchewing.py` 包的 `chewing.dll`），把接下來打的字母當漢語拼音（`KBType=9`）餵給它。
 
-**操作方式（v2，支援詞，取代最初只能查單一字的版本）：**
+**操作方式（v3，加入游標左右移動修正非最後一個字，取代最初只能查單一字、後來只能改最後一個字的版本）：**
 - 可以連續打多個音節組成詞，例如 `fang3fu2`：libchewing 會用內建詞庫自動「回頭修正」，打完 `fang3` 先猜「訪」，接著打 `fu2` 會自動把整串修正成「彷彿」，跟真的在用新酷音打字的行為一樣。
 - 打字過程中**不會主動彈出候選字清單**（拿掉了 v1 版本「音節打完就自動展開候選字」的做法，因為那樣會讓使用者沒辦法連續打完整個詞）。想看某個字的其它候選字，自己按 **方向鍵 ↓**（對應 `ctx.handle_Down()`），跟真正的新酷音操作一致，可以在打詞的過程中隨時挑選/修正某個字。
+- **方向鍵 ←/→ 移動游標**（對應 `ctx.handle_Left()`/`ctx.handle_Right()`），游標移動本身不會彈出候選字清單，純粹改變「接下來按 ↓ 要展開哪個位置的候選字」，可以在打完一整個詞之後，回頭去修正不是最後一個字的地方（見下面「踩到的坑」）。
 - 按 **Enter** 才是真正確定：把目前 buffer 內容（可能一個字、也可能一整個詞）送出，並且把裡面**每一個字**的蝦米碼都列出來，而不是只查最後一個字。
 - Backspace 統一直接呼叫 `ctx.handle_Backspace()`，一次刪一個字（`彷彿`→`訪`→空），空了才會退出反查模式；不用分「候選清單開著」跟「一般輸入中」兩種狀態處理。
+
+**踩到的坑：只能修正最後一個字，前面的字選錯了沒辦法改。** v2 版本的 `handlePinyinLookupKey` 完全沒有處理方向鍵 ←/→，這兩個鍵掉進 `else: ctx.handle_Default(charCode)` 分支，但方向鍵的 `charCode` 是 0（非可見字元），餵給 `handle_Default()` 基本上沒意義。沒有游標移動，`ctx.handle_Down()` 就只能對游標目前所在位置（預設停在 buffer 最尾端）展開候選字，所以永遠只能修正**最後一個字**；如果自動選字選錯的是前面的字（例如打 `ni3hao3` 自動變成「你好」，但其實想要「妳好」，「你」才是選錯的那個字），完全沒辦法回頭修正。
+
+修法是照官方新酷音模組（`python\input_methods\chewing\chewing_ime.py`）同一套 libchewing API 補上：
+```python
+elif keyCode == VK_LEFT:
+    ctx.handle_Left()
+elif keyCode == VK_RIGHT:
+    ctx.handle_Right()
+```
+放在 `VK_DOWN`／`VK_RETURN` 中間，跟其它分支平行，單純呼叫 libchewing 既有的游標移動 API，不用額外狀態。
+
+**實測發現的候選字顆粒度細節（libchewing 本身的行為，不是我們包裝的問題，新酷音也是同一顆引擎、同樣的特性）：** 游標移動的「可選取單位」是**詞／語塊**，不是任意字元位置。實測 `ni3hao3` 自動轉成「你好」（一個詞）後：
+- 游標在結尾（`cursor_Current()==2`）按 ↓：只看得到最後一個字「好」的候選字（`好/郝/㚼/㝀`）。
+- 遊標往左移一格（`cursor_Current()==1`，兩個字正中間）按 ↓：候選字**還是只有**「好」那一組，不會變成「你」的候選字——表示這個中間位置仍然被視為同一個語塊的一部分，不是獨立的切點。
+- 游標移到最前面（`cursor_Current()==0`）按 ↓：候選字變成**整個詞**的替代方案（`你好/妳好`），選第二個 `妳好` 就能把第一個字從「你」換成「妳」（同時保留「好」不變）。
+
+也就是說，要修正「不是最後一個字」的字，**游標要移到該語塊最前面**才看得到有效的替代候選字，候選字清單呈現的是「整個語塊」的替代方案，不是單獨那一個字的替代方案——這是 libchewing 本身詞彙辨識/選字的既有設計（官方新酷音一樣是這個行為），不是我們能力範圍內能改的東西，也不需要改，因為已經能達成「修正非最後一個字」這個目的。
+
+已用真正的 `CheLiuTextService` 類別（不是 mock）驗證過整個流程：打 `` `h ``+`ni3hao3` 自動變成「你好」，游標移到結尾按 ↓ 只看得到「好」的候選字（重現原本回報的問題）；另開一輪打同樣的字，按兩次 ← 把游標移到最前面再按 ↓，候選字變成 `你好`/`妳好`，選第二個正確把整串換成「妳好」；按 → 確認游標能正常往右移回去。
 
 **架構：跟 v/r/s/f 一樣，完全只放在 `python\input_methods\cheliu\cheliu_ime.py`，`cinbase` 一行都沒改。** 這個功能原本是直接寫在 `cinbase/__init__.py` 共用引擎裡（連同一個 `pinyinReverseLookup` config 開關才能避免影響其它 cin 系輸入法），後來發現其實不需要碰 `cinbase`：`cheliu_ime.py` 裡的 `self` 跟 `cinbase` 方法收到的 `cbTS` 參數本來就是同一個物件，`self.compositionChar`、`self.multifunctionmode`、`self.showCandidates`、`self.cin` 這些狀態，還有 `TextService` 基底類別給的 `setCommitString`/`setCandidateList`/`showMessage` 等輸出方法，`cheliu_ime.py` 全部都能直接讀寫，不需要透過 `cinbase` 的程式碼。
 

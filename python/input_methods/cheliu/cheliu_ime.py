@@ -281,8 +281,11 @@ class CheLiuTextService(TextService):
     # 反查拼音模式下的按鍵處理，全部交給內嵌的 libchewing 引擎判斷。
     # 打字時可以連續輸入多個音節組成詞 (libchewing 會用詞庫自動回頭修正，例如打完
     # fang3 先猜「訪」，接著打 fu2 會自動修正成「彷彿」)；按方向鍵 ↓ 可以展開候選字清單
-    # 挑選/比對其它字的蝦米碼；按 Enter 才會真正確定，把目前 buffer 內容(可能一個字、
-    # 可能一個詞)送出，並列出裡面每一個字的蝦米碼。
+    # 挑選/比對其它字的蝦米碼。方向鍵 ←/→ 移動游標到詞裡的其它字(呼叫 ctx.handle_Left()/
+    # handle_Right())，不會主動彈出候選字清單，等游標移到想改的那個字再按 ↓ 才會展開該
+    # 字的候選字清單——這樣才能修正「訪彿」裡的「訪」(不是最後一個字)，不是只能改最後
+    # 一個字。按 Enter 才會真正確定，把目前 buffer 內容(可能一個字、可能一個詞)送出，
+    # 並列出裡面每一個字的蝦米碼。
     def handlePinyinLookupKey(self, keyEvent):
         ctx = self.pinyinChewingContext
         keyCode = keyEvent.keyCode
@@ -300,6 +303,10 @@ class CheLiuTextService(TextService):
                 return True
         elif keyCode == VK_DOWN:
             ctx.handle_Down()
+        elif keyCode == VK_LEFT:
+            ctx.handle_Left()
+        elif keyCode == VK_RIGHT:
+            ctx.handle_Right()
         elif keyCode == VK_RETURN:
             ctx.handle_Enter()
             if ctx.commit_Check():
