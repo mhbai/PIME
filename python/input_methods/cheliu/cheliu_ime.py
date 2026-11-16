@@ -338,10 +338,15 @@ class CheLiuTextService(TextService):
             self.setCandidateList([])
 
         compStr = ctx.buffer_String().decode("UTF-8") if ctx.buffer_Check() else ""
+        # +1 是因為畫面上的 compositionString 永遠多一個開頭的 "`"，但
+        # ctx.cursor_Current()/bopomofoStr 的長度都是相對於 compStr 本身算的，不含這個前綴。
         if ctx.bopomofo_Check():
             bopomofoStr = ctx.bopomofo_String(None).decode("UTF-8")
             pos = ctx.cursor_Current()
             compStr = compStr[:pos] + bopomofoStr + compStr[pos:]
+            self.setCompositionCursor(pos + len(bopomofoStr) + 1)
+        else:
+            self.setCompositionCursor(ctx.cursor_Current() + 1)
         self.setCompositionString("`" + compStr)
 
         return True
