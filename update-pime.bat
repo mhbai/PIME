@@ -2,12 +2,19 @@
 REM Update this PIME installation to the latest tracked commit on GitHub, then
 REM restart the backend so the new code actually takes effect - requires
 REM Administrator privileges (git reset --hard writes under Program Files,
-REM and unregister/register-pime.bat both need it too).
+REM and restart-pime-backend.bat needs it too).
 REM
 REM Steps: git fetch + reset --hard origin/master (same overlay method used
-REM for the initial install, see README.md), then calls unregister-pime.bat
-REM followed by register-pime.bat so the old backend process is killed and a
-REM fresh one starts and picks up the updated code/table.
+REM for the initial install, see README.md), then calls
+REM restart-pime-backend.bat so the old backend process is killed and a
+REM fresh one starts and picks up the updated code/table. Deliberately does
+REM NOT call unregister-pime.bat/register-pime.bat here: repeatedly
+REM re-registering the TSF text service via regsvr32 has been observed to
+REM reset Windows' currently-selected input method for the language back to
+REM whichever TIP was just re-registered, knocking the user out of whatever
+REM other IME they had selected - and it's unnecessary anyway, since pulling
+REM new cheliu Python code never requires re-registering the already-
+REM installed COM/TSF component, only restarting the backend process.
 REM
 REM Refuses to overwrite local changes silently: if git status shows anything
 REM dirty (tracked-file edits or untracked files under the tracked paths),
@@ -53,8 +60,7 @@ if %errorlevel% neq 0 (
 
 echo.
 echo Restarting PIME backend so the update takes effect...
-call "%DIR%unregister-pime.bat"
-call "%DIR%register-pime.bat"
+call "%DIR%restart-pime-backend.bat"
 
 echo.
 echo Update complete.

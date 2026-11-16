@@ -4,7 +4,7 @@
 
 這是 [PIME](https://github.com/EasyIME/PIME)（Windows 中文輸入法框架，版本 `1.3.0-stable`）的客製化版本，針對內建的「蝦米」（Boshiamy／`cheliu`）輸入法新增了幾個功能。所有改動都是**純程式邏輯**，沒有修改任何有版權的字碼表資料，可以自由分享。
 
-這個 repo 只追蹤真正改過的檔案：`python\input_methods\cheliu\` 底下的蝦米模組本身，以及這份文件跟三支輔助腳本。PIME 安裝目錄底下其它所有東西——共用引擎 `cinbase\`、`python\libchewing\`、`python\opencc\`、「新酷音」模組（`python\input_methods\chewing\`）、核心管線程式（`server.py`、`textService.py`、`backends.json` 等）——全部沒有任何改動，跟官方安裝出來的版本一模一樣，所以都刻意不放進這個 repo。所有新功能需要用到的資料查詢（例如判斷某個字碼是不是更長字碼的字首、查詢拼音候選字）都是在 `cheliu_ime.py` 裡直接操作 `cinbase`／`libchewing` 本來就公開的屬性與 API 完成，不需要改動這些共用模組本身。
+這個 repo 只追蹤真正改過的檔案：`python\input_methods\cheliu\` 底下的蝦米模組本身，以及這份文件跟四支輔助腳本。PIME 安裝目錄底下其它所有東西——共用引擎 `cinbase\`、`python\libchewing\`、`python\opencc\`、「新酷音」模組（`python\input_methods\chewing\`）、核心管線程式（`server.py`、`textService.py`、`backends.json` 等）——全部沒有任何改動，跟官方安裝出來的版本一模一樣，所以都刻意不放進這個 repo。所有新功能需要用到的資料查詢（例如判斷某個字碼是不是更長字碼的字首、查詢拼音候選字）都是在 `cheliu_ime.py` 裡直接操作 `cinbase`／`libchewing` 本來就公開的屬性與 API 完成，不需要改動這些共用模組本身。
 
 ## 新增功能
 
@@ -38,8 +38,10 @@
 
 - `register-pime.bat` — 停止舊的後端行程、重啟 `PIMELauncher.exe`、註冊 PIME（安靜模式，不會跳出視窗要求手動按確定）
 - `unregister-pime.bat` — 停止後端行程、取消註冊 PIME（同樣是安靜模式）
+- `restart-pime-backend.bat` — **只**重啟後端行程，不會呼叫 `regsvr32`、不會動到 TSF/COM 註冊。平常改完程式碼或設定檔要測試，用這支，不要用 `register`/`unregister-pime.bat`——重複 `regsvr32` 註冊/取消註冊，實測會讓 Windows 把目前選定的輸入法切換掉（例如切成 PIME 自己，把你原本選的其它輸入法擠掉），這是 Windows 本身的行為，跟這個 repo 的程式邏輯無關，但 `register`/`unregister-pime.bat` 不需要常態性地重複執行就能避開。
+- `update-pime.bat` — 參見下面「更新既有安裝」一節
 
-兩支都需要「以系統管理員身分執行」。
+全部都需要「以系統管理員身分執行」。
 
 ---
 
@@ -67,7 +69,7 @@ git fetch origin
 git reset --hard origin/master
 ```
 
-`git reset --hard` 只會覆蓋這個 repo 裡有追蹤的檔案（蝦米的程式碼、字碼表、這兩支輔助腳本等），完全不會動到官方安裝程式裝進去、repo 裡沒有追蹤的檔案（`PIMELauncher.exe`、DLL、Python 直譯器）。
+`git reset --hard` 只會覆蓋這個 repo 裡有追蹤的檔案（蝦米的程式碼、字碼表、這幾支輔助腳本等），完全不會動到官方安裝程式裝進去、repo 裡沒有追蹤的檔案（`PIMELauncher.exe`、DLL、Python 直譯器）。
 
 ### 步驟 3：確認 libchewing 有裝進來
 
@@ -93,7 +95,7 @@ C:\Program Files (x86)\PIME\python\libchewing\chewing.dll
 
 ## 更新既有安裝
 
-已經照上面裝好的機器，之後要更新到最新版時，對 `update-pime.bat` 按右鍵「以系統管理員身分執行」即可，會自動依序做：`git fetch` → `git reset --hard origin/master` → 重啟後端（`unregister-pime.bat` + `register-pime.bat`）。如果這個 repo 有本機沒 commit 的改動，腳本會先中止並提示，不會默默蓋掉。
+已經照上面裝好的機器，之後要更新到最新版時，對 `update-pime.bat` 按右鍵「以系統管理員身分執行」即可，會自動依序做：`git fetch` → `git reset --hard origin/master` → 重啟後端（`restart-pime-backend.bat`）。如果這個 repo 有本機沒 commit 的改動，腳本會先中止並提示，不會默默蓋掉。
 
 也可以手動執行同樣的步驟：
 
@@ -103,7 +105,7 @@ git fetch origin
 git reset --hard origin/master
 ```
 
-更新完一定要重啟後端行程（跑 `unregister-pime.bat` 再跑 `register-pime.bat`），改動才會生效——PIME 的後端一旦啟動就會持續常駐，不會自動重載新的程式碼。
+更新完一定要重啟後端行程（跑 `restart-pime-backend.bat`），改動才會生效——PIME 的後端一旦啟動就會持續常駐，不會自動重載新的程式碼。更新程式碼不需要重新 `regsvr32`，所以不要用 `register`/`unregister-pime.bat`，那兩支留給真的要安裝/解除安裝時用（見上面「輔助腳本」一節說明原因）。
 
 ---
 

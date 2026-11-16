@@ -23,7 +23,7 @@
 這個目錄有掛 git（私人 repo：`https://github.com/mhbai/PIME`），但**只追蹤真正改過的東西**，不是整個 PIME 安裝目錄：
 
 - `python\input_methods\cheliu\`（蝦米模組本身，所有新功能都寫在這裡）
-- `CLAUDE.md`、`README.md`、兩支 `register`/`unregister-pime.bat`
+- `CLAUDE.md`、`README.md`、四支輔助腳本（`register`/`unregister-pime.bat`、`update-pime.bat`、`restart-pime-backend.bat`）
 
 原則很簡單：**沒有實際改過的東西就不放進 git**。除了上面列的這幾樣，PIME 安裝目錄底下其它所有東西——`cinbase\` 共用引擎（含 `__init__.py`／`config.py`／`cin.py`、字碼表資料、網頁設定介面）、`python\libchewing\`、`python\opencc\`、`python\input_methods\chewing\`（新酷音模組）、核心管線程式（`server.py`、`serviceManager.py`、`textService.py`、`keycodes.py`、`backends.json`、`version.txt`、`python\input_methods\__init__.py`）、二進位檔（`PIMELauncher.exe`、DLL、Python 直譯器）跟第三方前端函式庫——全部都**沒有追蹤**，因為全部都沒被我們改過，逐一用 `git log -- <path>` 確認過，都只有最初整包匯入時的那一次紀錄，之後再也沒有變動過。
 
@@ -72,23 +72,28 @@ regsvr32 /u "x64\PIMETextService.dll"
 - `register-pime.bat` — 以系統管理員身分執行：先停止現有的 PIME 後端行程，**明確重新啟動 `PIMELauncher.exe`**（見下方原因），再對 x86/x64 兩份 DLL 執行 `regsvr32`（註冊/啟動）
 - `unregister-pime.bat` — 以系統管理員身分執行：先停止現有的 PIME 後端行程，再對 x86/x64 兩份 DLL 執行 `regsvr32 /u`（取消註冊/停止）
 - `update-pime.bat` — 以系統管理員身分執行：在其它已經用 git overlay 方式裝好這個 repo 的機器上，把安裝目錄更新到 GitHub 上最新的 commit，並自動重啟後端。依序做：`git fetch origin` → 檢查 `git status --porcelain` 是否乾淨（不乾淨就中止，不會默默蓋掉本機的改動）→ `git reset --hard origin/master` → `call unregister-pime.bat` → `call register-pime.bat`。等於是把先前手動打的那幾行指令（`git fetch`/`git reset --hard`/重啟後端）包成一支腳本，行為完全一樣，只是不用每次手動打。
+- `restart-pime-backend.bat` — 以系統管理員身分執行：**只**重啟後端行程（砍掉 `PIMELauncher.exe`/`python.exe` 再重開），完全不呼叫 `regsvr32`，不會動到 TSF/COM 註冊。平常改完 `cheliu_ime.py` 或設定檔要測試，改用這支，原因見下面「`regsvr32` 重複註冊會打亂 Windows 輸入法切換」一節。
 
-三個腳本都會先檢查是否具備系統管理員權限（用 `net session` 測試），沒有的話會提示需要「以系統管理員身分執行」再重新執行。
+四個腳本都會先檢查是否具備系統管理員權限（用 `net session` 測試），沒有的話會提示需要「以系統管理員身分執行」再重新執行。
 
-**停止後端行程的邏輯（`register`/`unregister-pime.bat` 都有，`update-pime.bat` 透過呼叫它們間接沿用）：**
+**停止後端行程的邏輯（`register`/`unregister-pime.bat`/`restart-pime-backend.bat` 都有，`update-pime.bat` 透過呼叫 `register`/`unregister-pime.bat` 間接沿用）：**
 ```
 taskkill /F /IM PIMELauncher.exe
 powershell -NoProfile -Command "Get-Process -Name python -ErrorAction SilentlyContinue | Where-Object { $_.Path -ieq 'C:\Program Files (x86)\PIME\python\python3\python.exe' } | Stop-Process -Force"
 ```
 `PIMELauncher.exe` 用行程名稱直接砍掉即可（名稱夠獨特）。`python.exe` 則故意不用 `taskkill /IM python.exe`，因為那樣會砍掉使用者電腦上**所有**叫 python.exe 的行程（例如使用者自己在跑的其他 Python 腳本），改用 PowerShell 依**完整執行檔路徑**過濾，只砍 PIME 自己那個 `python\python3\python.exe`，避免波及無關行程。
 
-**`register-pime.bat` 額外多一步：`start /D "C:\Program Files (x86)\PIME\" PIMELauncher.exe`**，砍完舊行程後立刻手動重新啟動 `PIMELauncher.exe`。這是因為實測發現 `PIMETextService.dll` 沒有在使用者切換輸入法時自動把 `PIMELauncher.exe` 拉起來（根本原因不明，見上一節說明），症狀是：切換輸入法、按 Shift 切中文模式都「有反應」，但按鍵完全沒被攔截，直接輸出英文字母，且怎麼查都找不到 `PIMELauncher.exe`／`python.exe` 這兩個行程在跑。手動用 `start` 先把 `PIMELauncher.exe` 獨立啟動、讓它常駐，`PIMELauncher.exe` 之後就會自己接著啟動 `python\python3\python.exe server.py` 當後端（兩者啟動時間只差不到 1 秒），DLL 之後只要連上這個已經在跑的常駐行程即可，不用自己再嘗試產生新行程。
+**`register-pime.bat`／`restart-pime-backend.bat` 都多一步：`start /D "C:\Program Files (x86)\PIME\" PIMELauncher.exe`**，砍完舊行程後立刻手動重新啟動 `PIMELauncher.exe`。這是因為實測發現 `PIMETextService.dll` 沒有在使用者切換輸入法時自動把 `PIMELauncher.exe` 拉起來（根本原因不明，見上一節說明），症狀是：切換輸入法、按 Shift 切中文模式都「有反應」，但按鍵完全沒被攔截，直接輸出英文字母，且怎麼查都找不到 `PIMELauncher.exe`／`python.exe` 這兩個行程在跑。手動用 `start` 先把 `PIMELauncher.exe` 獨立啟動、讓它常駐，`PIMELauncher.exe` 之後就會自己接著啟動 `python\python3\python.exe server.py` 當後端（兩者啟動時間只差不到 1 秒），DLL 之後只要連上這個已經在跑的常駐行程即可，不用自己再嘗試產生新行程。
 
-新增停止/重啟這段的原因：改完蝦米字碼表（`liu.cin`/`liu.json`）或 `cheliu_ime.py` 後，光是切換輸入法測試，`python.exe` 後端進程完全沒有重啟過，導致改動一直不生效、也沒有任何錯誤訊息，只會表現成「查無組字」之類的假象（誤以為是字碼表寫錯）。之後改完程式碼或字碼表要測試，記得先跑一次 `unregister-pime.bat` 再跑 `register-pime.bat`，再重新切換輸入法，才能確保是用最新的檔案在跑，而且 `PIMELauncher.exe` 真的有被啟動起來。
+新增停止/重啟這段的原因：改完蝦米字碼表（`liu.cin`/`liu.json`）或 `cheliu_ime.py` 後，光是切換輸入法測試，`python.exe` 後端進程完全沒有重啟過，導致改動一直不生效、也沒有任何錯誤訊息，只會表現成「查無組字」之類的假象（誤以為是字碼表寫錯）。之後改完程式碼或字碼表要測試，記得跑一次 `restart-pime-backend.bat`，再重新切換輸入法，才能確保是用最新的檔案在跑，而且 `PIMELauncher.exe` 真的有被啟動起來。
 
-**`regsvr32` 加了 `/s`（silent）：** 原本 `regsvr32` 成功/失敗都會跳出訊息視窗要手動按掉，兩支腳本現在都用 `/s` 讓它安靜執行，改用 `%errorlevel%` 判斷成功與否，直接印文字訊息（`x86/x64 build registered/unregistered successfully.` 或 `[ERROR] ... exit code ...`），不用再用滑鼠點掉彈窗。
+**`regsvr32` 重複註冊會打亂 Windows 輸入法切換，這是 `restart-pime-backend.bat` 存在的原因。** 原本測試改動的習慣是跑 `unregister-pime.bat` 再 `register-pime.bat`，兩支都會對 x86/x64 DLL 做一次 `regsvr32`（取消）註冊。查登錄檔（`HKLM\SOFTWARE\Microsoft\CTF\TIP`、`Get-WinUserLanguageList`）確認過，這台機器上官方「嘸蝦米」（CLSID `{8CC71BD4-...}`）跟 PIME 的蝦米/新酷音（CLSID `{35F67E9D-...}`，兩個不同的 profile GUID）是完全獨立註冊的 TSF 輸入法，彼此沒有 GUID 衝突或覆蓋——但使用者實測回報：每次跑完 `register-pime.bat` 之後，**系統原本選定的官方嘸蝦米，會被切換成 PIME 的蝦米**。這是 Windows 本身的已知行為：重新 `regsvr32` 註冊一個 TSF 輸入法，系統常常會順便把它切成「目前使用中」的那個，不是單純補登記而已，跟 `cheliu_ime.py`／`cinbase` 的程式邏輯完全無關，我們的 Python 層也沒有能力控制「系統目前選中哪個輸入法」。
 
-**編碼注意事項：** 這三支腳本內文刻意全用 ASCII 英文，沒有放中文。原因是最初版本內含中文註解/訊息，UTF-8 存檔後在這台機器上用 `cmd.exe` 執行時，因為主控台的作用中文碼頁不是 UTF-8，多位元組的中文字被誤判成 `&`、`|` 之類的特殊字元，導致整行被拆成好幾個「無法辨識的命令」而報錯。在 `@echo off` 後加 `chcp 65001 >nul` 理論上可解，但在這台機器上實測仍失敗（cmd 對批次檔的頁碼切換時機不夠可靠），因此改用純 ASCII 內容澈底避開這個問題。**之後若要修改這三支 .bat，避免加入中文字元。**
+**真正的教訓：只有改 Python 程式碼/設定檔，根本不需要重新 `regsvr32`，只需要重啟後端行程**（砍掉 `PIMELauncher.exe`/`python.exe` 再重開）就夠了，`regsvr32` 只有在真的要安裝/解除安裝 TSF 輸入法時才需要。之前把「重啟行程」跟「重新註冊」兩件事綁在同一支腳本裡，是因為兩支腳本剛好都已經有砍行程的邏輯，圖個方便，結果每次只是想測試程式碼改動，也順便觸發了這個 Windows 副作用，把使用者原本選定的其它輸入法切掉。**`register-pime.bat`／`unregister-pime.bat` 現在只留給真的要安裝/解除安裝使用，日常測試程式碼改動一律改用 `restart-pime-backend.bat`**（內容幾乎跟 `register-pime.bat` 一樣，只是拿掉兩段 `regsvr32`）。
+
+**`regsvr32` 加了 `/s`（silent）：** 原本 `regsvr32` 成功/失敗都會跳出訊息視窗要手動按掉，`register`/`unregister-pime.bat` 都用 `/s` 讓它安靜執行，改用 `%errorlevel%` 判斷成功與否，直接印文字訊息（`x86/x64 build registered/unregistered successfully.` 或 `[ERROR] ... exit code ...`），不用再用滑鼠點掉彈窗。（`restart-pime-backend.bat` 完全不呼叫 `regsvr32`，不適用這段。）
+
+**編碼注意事項：** 這四支腳本內文刻意全用 ASCII 英文，沒有放中文。原因是最初版本內含中文註解/訊息，UTF-8 存檔後在這台機器上用 `cmd.exe` 執行時，因為主控台的作用中文碼頁不是 UTF-8，多位元組的中文字被誤判成 `&`、`|` 之類的特殊字元，導致整行被拆成好幾個「無法辨識的命令」而報錯。在 `@echo off` 後加 `chcp 65001 >nul` 理論上可解，但在這台機器上實測仍失敗（cmd 對批次檔的頁碼切換時機不夠可靠），因此改用純 ASCII 內容澈底避開這個問題。**之後若要修改這四支 .bat，避免加入中文字元。**
 
 ## 蝦米（cheliu）字碼表
 
