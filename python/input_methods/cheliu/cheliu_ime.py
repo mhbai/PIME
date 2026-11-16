@@ -292,9 +292,18 @@ class CheLiuTextService(TextService):
         charCode = keyEvent.charCode
 
         if keyCode == VK_ESCAPE:
-            self.resetPinyinLookupMode()
-            self.cinbase.resetComposition(self)
-            return True
+            # 跟真正的新酷音一致：候選字清單開著的時候，第一次按 Esc 只關掉清單，
+            # 還留在反查拼音狀態；要等候選字清單已經關閉的狀態下再按一次 Esc，才會
+            # 真正離開反查拼音模式。libchewing 自己的 ctx.handle_Esc() 只會關閉候選字
+            # 清單，不會清掉 buffer(就算候選字清單早就是關的，重複呼叫也一樣不會清空)，
+            # 所以「第二次才整個離開」這個行為要我們自己判斷、自己決定，不能指望
+            # libchewing 內建就有這個兩階段邏輯。
+            if ctx.cand_TotalChoice() > 0:
+                ctx.handle_Esc()
+            else:
+                self.resetPinyinLookupMode()
+                self.cinbase.resetComposition(self)
+                return True
         elif keyCode == VK_BACK:
             ctx.handle_Backspace()
             if not ctx.buffer_Check() and not ctx.bopomofo_Check() and ctx.cand_TotalChoice() == 0:

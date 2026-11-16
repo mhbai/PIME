@@ -207,6 +207,24 @@ else:
 
 **所以碰到「開頭的字選錯了、但後面接的字又沒有跟它組成已知替代詞彙」這種情況（例如「看戲」想把「看」換成別的字），唯一可靠的辦法不是游標左右移動，而是退格** 把「戲」刪掉，這時候 buffer 只剩「看」一個字，按 ↓ 就會看到「看」自己完整的候選字清單（`看/瞰/勘/闞/矙/磡/衎/墈/碪`），選好之後再重新打一次 `xi4` 接上去即可。已用真正的 `CheLiuTextService` 驗證過這個完整流程：`kan4xi4`→退格→（剩「看」）→按 ↓→選第 2 個候選字「瞰」→重打 `xi4`→最終得到「瞰細」，正確把第一個字換掉、沒有動到後面重新接上的字。這跟游標移動是兩種互補的修正手段：游標移動適合「這個位置剛好有收錄替代詞彙」的情況（例如你好/妳好），退格重打則是任何情況都適用的保底做法。
 
+**Esc 的兩段式行為：候選字清單開著時第一次 Esc 只關掉清單、留在反查拼音狀態；清單已經關閉時再按才真正離開。** 原本的寫法是不管候選字清單開不開，按 Esc 一律立刻呼叫 `resetPinyinLookupMode()` + `resetComposition()`，直接整個離開反查拼音模式——跟真正的新酷音操作習慣不一樣：新酷音選字選單開著時按 Esc，只會先關掉選單，還留在拼音輸入狀態，要等選單已經關閉的狀態下再按一次 Esc 才會真正離開。
+
+一開始猜測這個兩段式行為是 libchewing 引擎自己內建的（因為官方新酷音模組 `chewing_ime.py` 對 Esc 完全沒有特殊處理，就是透過 `keyNames` 動態對應表直接呼叫 `ctx.handle_Esc()`，等同於其它一般按鍵），**但實測發現並非如此**：直接呼叫 `ctx.handle_Esc()`，第一次呼叫會把 `cand_TotalChoice()` 從非 0 變成 0（確實關掉候選字清單），但**buffer 完全沒有被清空**（`buffer_Check()` 還是 `True`、內容不變）；候選字清單已經是關閉狀態時再呼叫第二次 `handle_Esc()`，buffer 一樣原封不動，不會自己變空。也就是說 libchewing 的 `chewing_handle_Esc()` 本身**只有「關候選字清單」這一個效果**，「候選字清單已關閉時再按一次才整個離開」這個兩階段行為，**在真正的新酷音裡其實不是靠 libchewing 做的**，必須由我們自己在 `cheliu_ime.py` 這一層判斷、自己決定。
+
+修法：
+```python
+if keyCode == VK_ESCAPE:
+    if ctx.cand_TotalChoice() > 0:
+        ctx.handle_Esc()
+    else:
+        self.resetPinyinLookupMode()
+        self.cinbase.resetComposition(self)
+        return True
+```
+候選字清單開著（`cand_TotalChoice() > 0`）就只呼叫 `ctx.handle_Esc()` 把清單關掉，然後照常往下走到函式最後的通用流程（重新整理 `compositionString`／候選字清單等欄位，這時候 `cand_TotalChoice()` 已經變 0，`updatePinyinCandidateList` 不會被呼叫，`showCandidates` 會被設回 `False`），**不呼叫** `resetPinyinLookupMode()`，所以還留在反查拼音狀態；候選字清單已經關閉（不管是本來就沒開、還是剛剛才被上一次 Esc 關掉）才會真正離開。
+
+已用真正的 `CheLiuTextService` 類別驗證過三種情境：候選字清單開著時按 Esc→清單關閉、`pinyinLookupMode` 仍是 `True`、`compositionString` 內容不變；清單已關閉時再按一次 Esc→`pinyinLookupMode` 變 `False`、`compositionString` 清空；從頭到尾沒開過候選字清單（例如打到一半還在輸入字母）按 Esc→跟原本行為一樣，按一次就直接離開（不需要先按一次「假裝關清單」才能離開，因為沒有清單可關）。
+
 **架構：跟 v/r/s/f 一樣，完全只放在 `python\input_methods\cheliu\cheliu_ime.py`，`cinbase` 一行都沒改。** 這個功能原本是直接寫在 `cinbase/__init__.py` 共用引擎裡（連同一個 `pinyinReverseLookup` config 開關才能避免影響其它 cin 系輸入法），後來發現其實不需要碰 `cinbase`：`cheliu_ime.py` 裡的 `self` 跟 `cinbase` 方法收到的 `cbTS` 參數本來就是同一個物件，`self.compositionChar`、`self.multifunctionmode`、`self.showCandidates`、`self.cin` 這些狀態，還有 `TextService` 基底類別給的 `setCommitString`/`setCandidateList`/`showMessage` 等輸出方法，`cheliu_ime.py` 全部都能直接讀寫，不需要透過 `cinbase` 的程式碼。
 
 實際做法：
