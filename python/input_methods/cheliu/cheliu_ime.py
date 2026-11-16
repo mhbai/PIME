@@ -286,12 +286,37 @@ class CheLiuTextService(TextService):
     # 字的候選字清單——這樣才能修正「訪彿」裡的「訪」(不是最後一個字)，不是只能改最後
     # 一個字。按 Enter 才會真正確定，把目前 buffer 內容(可能一個字、可能一個詞)送出，
     # 並列出裡面每一個字的蝦米碼。
+    #
+    # 候選字清單「已經展開」時，上下左右鍵改成移動清單裡的選字游標，不再是上面那段
+    # 說的「移動詞裡的游標」——這兩者只有其中一種情境會用到，不會衝突：清單沒開時是
+    # 移動詞的游標，清單開了就是選字，見 movePinyinCandidateCursor()。這是因為實測
+    # 發現 libchewing 原生對這幾個鍵、在候選字清單開著時的行為完全不是「選字」：
+    # handle_Left()/handle_Right() 會直接整頁翻頁(而且頭尾相接、會循環)，handle_Up()
+    # 會直接把整個候選字清單關掉，handle_Down() 清單已開啟時則什麼都不會發生——沒有
+    # 一個是「移動醒目提示到清單裡的下一/上一個字」。所以改成完全不呼叫這幾個
+    # libchewing 方法來處理清單內的游標移動，自己在 Python 這層維護
+    # self.candidateCursor，真的要換頁時才呼叫 handle_Left()/handle_Right()(這兩個
+    # 已經實測確認在清單開啟時就是換頁，不是移動詞的游標)。
     def handlePinyinLookupKey(self, keyEvent):
         ctx = self.pinyinChewingContext
         keyCode = keyEvent.keyCode
         charCode = keyEvent.charCode
+        candidateOpen = ctx.cand_TotalChoice() > 0
 
-        if keyCode == VK_ESCAPE:
+        if candidateOpen and keyCode in (VK_UP, VK_DOWN, VK_LEFT, VK_RIGHT):
+            self.movePinyinCandidateCursor(ctx, keyCode)
+            return True
+
+        if candidateOpen and keyCode == VK_RETURN:
+            # 清單開著時 Enter 是「選定目前游標所在的候選字」，不是送出整個組字區
+            # (送出整個組字區是下面 elif keyCode == VK_RETURN 那一支，只有在清單已經
+            # 關閉時才會走到)。選字方式跟真正的新酷音一致：把游標位置對應的選字鍵
+            # 字元，當成使用者直接按下那個數字鍵，餵給 libchewing 自己判斷選字
+            # (已實測確認 ctx.handle_Default(ord(selKey)) 會正確選字、關閉清單、
+            # 更新 buffer，不需要額外處理)。
+            selKey = self.selKeys[self.candidateCursor]
+            ctx.handle_Default(ord(selKey))
+        elif keyCode == VK_ESCAPE:
             # 跟真正的新酷音一致：候選字清單開著的時候，第一次按 Esc 只關掉清單，
             # 還留在反查拼音狀態；要等候選字清單已經關閉的狀態下再按一次 Esc，才會
             # 真正離開反查拼音模式。libchewing 自己的 ctx.handle_Esc() 只會關閉候選字
@@ -359,6 +384,46 @@ class CheLiuTextService(TextService):
         self.setCompositionString("`" + compStr)
 
         return True
+
+
+    # 候選字清單開啟時，上下左右鍵移動選字游標(self.candidateCursor，TextService 既有
+    # 屬性)，而不是交給 libchewing 原生的 handle_Up()/handle_Down()/handle_Left()/
+    # handle_Right() 處理。實測這四個方法在候選字清單已開啟時的行為：handle_Left()/
+    # handle_Right() 是直接整頁翻頁(頭尾相接、會循環，例如最後一頁按右鍵會繞回第一
+    # 頁)，handle_Up() 是直接把整個候選字清單關掉，handle_Down() 則完全沒有效果——
+    # 沒有一個在做「移動醒目提示到清單裡的上一/下一個字」，所以兩段式選字(游標移動
+    # +確認)要自己在這裡做：清單裡還有上一個/下一個字就直接移動游標；已經是清單這
+    # 一頁的第一個/最後一個字，才呼叫 handle_Left()/handle_Right() 換頁(這兩個已經
+    # 實測確認在清單開啟時就是換頁，不是移動詞的游標)，換頁後游標落在新的一頁的最後
+    # 一個(往左/上換頁時)或第一個(往右/下換頁時)，跟 cinbase 自己選單系統的左右鍵
+    # 換頁邏輯一致。上下鍵跟左右鍵用同一套規則，沒有另外做成「以列為單位」跳動，因為
+    # 反查拼音的候選字清單在畫面上就是單純一直排下去的清單，不是像設定選單那樣的
+    # 多欄網格。
+    def movePinyinCandidateCursor(self, ctx, keyCode):
+        candCursor = self.candidateCursor
+        candCount = len(self.pinyinDisplayCandidates)
+        forward = keyCode in (VK_DOWN, VK_RIGHT)
+
+        if forward:
+            if candCursor + 1 < candCount:
+                candCursor += 1
+            else:
+                ctx.handle_Right()
+                self.updatePinyinCandidateList(ctx)
+                return
+        else:
+            if candCursor > 0:
+                candCursor -= 1
+            else:
+                ctx.handle_Left()
+                self.updatePinyinCandidateList(ctx)
+                self.setCandidateCursor(len(self.pinyinDisplayCandidates) - 1)
+                return
+
+        self.setCandidateCursor(candCursor)
+        # 候選字清單回覆封包是逐鍵增量的，這次按鍵沒有重新宣告 showCandidates 的話，
+        # 清單會直接從畫面上消失(跟 v/r/s/f 快速選字踩過的坑一樣)。
+        self.setShowCandidates(True)
 
 
     # 重建候選字清單，並標注目前字碼表的蝦米碼 (候選字視窗只能顯示單一字串，沒有另外

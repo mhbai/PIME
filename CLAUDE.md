@@ -225,6 +225,55 @@ if keyCode == VK_ESCAPE:
 
 已用真正的 `CheLiuTextService` 類別驗證過三種情境：候選字清單開著時按 Esc→清單關閉、`pinyinLookupMode` 仍是 `True`、`compositionString` 內容不變；清單已關閉時再按一次 Esc→`pinyinLookupMode` 變 `False`、`compositionString` 清空；從頭到尾沒開過候選字清單（例如打到一半還在輸入字母）按 Esc→跟原本行為一樣，按一次就直接離開（不需要先按一次「假裝關清單」才能離開，因為沒有清單可關）。
 
+**候選字清單開啟時改用鍵盤上下左右鍵移動選字游標，取代原本只能用數字鍵選字的方式。** 原本的寫法是候選字清單開著時，方向鍵還是照一般情況一路轉呼叫到 libchewing：`VK_DOWN` → `ctx.handle_Down()`、`VK_LEFT`/`VK_RIGHT` → `ctx.handle_Left()`/`handle_Right()`、`VK_UP` 完全沒處理（掉進 `else` 分支呼叫 `ctx.handle_Default(charCode)`，charCode 是 0，等於沒反應）。使用者實測回報：選字時只能用數字鍵，按方向鍵會讓選單直接換頁，沒辦法像一般候選字清單那樣用游標把醒目提示移到想要的字上面。
+
+實測（直接對真正的 `ChewingContext`/`chewing.dll` 下指令，不是用猜的）確認候選字清單**已經開啟**時，libchewing 這幾個方法的行為完全不是「選字」：
+- `ctx.handle_Left()`／`ctx.handle_Right()`：直接整頁翻頁（往前一頁／往後一頁），而且頭尾相接會循環——在最後一頁按 `handle_Right()` 會直接繞回第一頁，在第一頁按 `handle_Left()` 會直接繞到最後一頁。
+- `ctx.handle_Up()`：直接把整個候選字清單關掉（`cand_TotalChoice()` 變成 0），不管目前在第幾頁都一樣，候選字清單瞬間消失。
+- `ctx.handle_Down()`：候選字清單已經開啟時呼叫完全沒有任何效果（頁面、候選字都不變）。
+
+也就是說 libchewing 原生對這四個鍵在候選字清單開啟時的語意，沒有一個是「移動醒目提示到清單裡的上一個/下一個字」，所以兩段式的「游標移動＋確認」要完全由 `cheliu_ime.py` 自己做，不能指望 libchewing 內建。
+
+修法：`handlePinyinLookupKey()` 一開始先判斷 `ctx.cand_TotalChoice() > 0`（候選字清單是否已經展開），是的話上下左右鍵完全不呼叫上面那幾個 libchewing 方法，改呼叫新增的 `movePinyinCandidateCursor(ctx, keyCode)`：
+```python
+def movePinyinCandidateCursor(self, ctx, keyCode):
+    candCursor = self.candidateCursor
+    candCount = len(self.pinyinDisplayCandidates)
+    forward = keyCode in (VK_DOWN, VK_RIGHT)
+
+    if forward:
+        if candCursor + 1 < candCount:
+            candCursor += 1
+        else:
+            ctx.handle_Right()
+            self.updatePinyinCandidateList(ctx)
+            return
+    else:
+        if candCursor > 0:
+            candCursor -= 1
+        else:
+            ctx.handle_Left()
+            self.updatePinyinCandidateList(ctx)
+            self.setCandidateCursor(len(self.pinyinDisplayCandidates) - 1)
+            return
+
+    self.setCandidateCursor(candCursor)
+    self.setShowCandidates(True)
+```
+上下鍵跟左右鍵用同一套規則（都是「移到清單裡的下一個/上一個字」），沒有另外做成以列為單位跳動，因為反查拼音的候選字清單在畫面上就是單純一路排下去的清單，不是設定選單那種多欄網格。在目前這一頁的中間移動就直接改 `self.candidateCursor`；已經是這一頁的第一個/最後一個字，才呼叫 `ctx.handle_Left()`/`handle_Right()` 真的換頁（這兩個已經實測確認在清單開啟時就是換頁，不是移動詞的游標），換頁後游標落在新的一頁的最後一個（往左/上換頁時，呼應 `len(self.pinyinDisplayCandidates) - 1`）或第一個（往右/下換頁時，`updatePinyinCandidateList` 本來就會把游標重設為 0），跟 `cinbase` 自己選單系統（例如功能選單）左右鍵換頁時「重設游標為前一頁最後一個/後一頁第一個」的邏輯一致。因為 libchewing 的翻頁本身是頭尾相接循環的，所以也不需要額外判斷「已經是最後一頁，不能再往下翻」這種邊界情況——一路按下去會自然繞一圈回到起點。
+
+真正確認選字則是 Enter 鍵，一樣要在清單開啟時特別處理，不能沿用「候選字清單關閉時 Enter＝送出整個 buffer」的那一支：
+```python
+if candidateOpen and keyCode == VK_RETURN:
+    selKey = self.selKeys[self.candidateCursor]
+    ctx.handle_Default(ord(selKey))
+```
+做法跟官方新酷音模組 `chewing_ime.py` 選字清單部分完全一樣的技巧：把游標所在位置對應的選字鍵字元（`self.selKeys` 固定是 `"1234567890"`，候選字清單游標跟數字選字鍵本來就是同一套索引），當成使用者直接按下那個數字鍵，餵給 `ctx.handle_Default()`，交由 libchewing 自己判斷選字——已實測確認這樣呼叫會正確選字、自動關閉候選字清單、更新 buffer 內容，不需要我們自己再手動操作 buffer。選字完成後 buffer 不會馬上送出（跟原本「清單關閉時 Enter 才送出」的設計一致），使用者可以繼續移動詞的游標修正其它字、或再按一次 Enter（這次候選字清單已經關閉）才會真的 `commit_Check()` 送出。
+
+另外要注意 `movePinyinCandidateCursor()` 修改游標或候選字清單之後，一定要呼叫 `self.setShowCandidates(True)`（`updatePinyinCandidateList()` 本身也會做這件事），原因跟 v/r/s/f 快速選字踩過的坑一模一樣：`TextService.handleRequest()` 每次按鍵都把 `currentReply` 清空重來，這次按鍵的回覆封包裡沒有重新宣告 `showCandidates`，候選字視窗會直接從畫面上消失。
+
+已用真正的 `CheLiuTextService` 類別（不是 mock）完整驗證過：打 `yi4`（候選字清單總共 215 個字，遠超過一頁）按 ↓ 展開第一頁 9 個字（`意/義/易/議/亦/益/異/藝/億`）；按 → 游標從 0 移到 1、再按 ↓ 移到 2、按 ↑ 退回 1（確認上下左右鍵在清單內移動時用的是同一套規則）；從第一頁最前面（游標 0）按 ← 正確換頁到最後一頁（8 個字，游標自動落在該頁最後一個，索引 7）；在最後一頁連續按 → 最後會循環繞回第一頁（索引 0），之後再按 → 可以正常累加到索引 8；按 Enter 正確選定游標所在的候選字（索引 8＝「億」），候選字清單關閉、`compositionString` 更新成「`億」；再按一次 Enter 正確送出 `commitString="億"`、`pinyinLookupMode` 恢復 `False`。另外也驗證過這個改動不影響既有行為：Esc 兩段式（清單開著時先按 ← 移動游標，再按 Esc 只關閉清單、`pinyinLookupMode` 仍是 `True`，再按一次 Esc 才真正離開）、候選字清單開啟時 Backspace 一樣能正常刪字、候選字清單**關閉**時 ←/→ 仍然是移動詞的游標（例如 `fang3fu2` 按兩次 ← 把游標移到第一個字再按 ↓，正確展開「彷彿/仿佛」整詞候選字，不是被新的選字游標邏輯攔截）。
+
 **架構：跟 v/r/s/f 一樣，完全只放在 `python\input_methods\cheliu\cheliu_ime.py`，`cinbase` 一行都沒改。** 這個功能原本是直接寫在 `cinbase/__init__.py` 共用引擎裡（連同一個 `pinyinReverseLookup` config 開關才能避免影響其它 cin 系輸入法），後來發現其實不需要碰 `cinbase`：`cheliu_ime.py` 裡的 `self` 跟 `cinbase` 方法收到的 `cbTS` 參數本來就是同一個物件，`self.compositionChar`、`self.multifunctionmode`、`self.showCandidates`、`self.cin` 這些狀態，還有 `TextService` 基底類別給的 `setCommitString`/`setCandidateList`/`showMessage` 等輸出方法，`cheliu_ime.py` 全部都能直接讀寫，不需要透過 `cinbase` 的程式碼。
 
 實際做法：
