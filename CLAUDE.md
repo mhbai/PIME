@@ -91,6 +91,12 @@ powershell -NoProfile -Command "Get-Process -Name python -ErrorAction SilentlyCo
 
 **真正的教訓：只有改 Python 程式碼/設定檔，根本不需要重新 `regsvr32`，只需要重啟後端行程**（砍掉 `PIMELauncher.exe`/`python.exe` 再重開）就夠了，`regsvr32` 只有在真的要安裝/解除安裝 TSF 輸入法時才需要。之前把「重啟行程」跟「重新註冊」兩件事綁在同一支腳本裡，是因為兩支腳本剛好都已經有砍行程的邏輯，圖個方便，結果每次只是想測試程式碼改動，也順便觸發了這個 Windows 副作用，把使用者原本選定的其它輸入法切掉。**`register-pime.bat`／`unregister-pime.bat` 現在只留給真的要安裝/解除安裝使用，日常測試程式碼改動一律改用 `restart-pime-backend.bat`**（內容幾乎跟 `register-pime.bat` 一樣，只是拿掉兩段 `regsvr32`）。
 
+**已經發生「系統預設輸入法被切亂」時的補救方式（嘗試順序，由輕到重）：**
+1. 手動切換：點工作列輸入法圖示或按 `Win+Space`，直接選回官方嘸蝦米——當下立即見效，但只解決這一次，不保證之後不會再被帶偏。
+2. `Set-WinDefaultInputMethodOverride -InputTip "<語言代碼>:<CLSID><ProfileGUID>"`（對應的 `InputTip` 字串可以用 `Get-WinUserLanguageList` 查出來）：明確設定系統預設輸入法。這台機器上官方嘸蝦米對應的字串是 `0404:{8CC71BD4-7D95-4F22-B1A5-FB330DD7872B}{9BB86B3A-57D9-4330-AF66-E3ACCE63E35C}`。用 `Get-WinDefaultInputMethodOverride` 確認有沒有套用成功。
+3. 重啟 `ctfmon.exe`（`Stop-Process -Name ctfmon -Force` 再 `Start-Process ctfmon.exe`）：想讓當前工作階段重新讀取上面設定的預設值，不用登出/重開機。
+4. **實測結果：這台機器上，步驟 2＋3 都做了仍然沒有讓系統即時生效，最後是完整重開機才真正修好。** 代表 TSF 的「目前使用中」狀態在某些情況下比 `ctfmon.exe` 重啟能處理的範圍更頑固（可能牽涉到已經開啟的應用程式各自快取住的輸入情境，重啟 `ctfmon` 不會波及到它們），重開機是目前唯一確認有效的手段。之後如果再遇到同樣的「系統預設輸入法被切亂」，不用浪費時間反覆嘗試 2/3，可以直接重開機。
+
 **`regsvr32` 加了 `/s`（silent）：** 原本 `regsvr32` 成功/失敗都會跳出訊息視窗要手動按掉，`register`/`unregister-pime.bat` 都用 `/s` 讓它安靜執行，改用 `%errorlevel%` 判斷成功與否，直接印文字訊息（`x86/x64 build registered/unregistered successfully.` 或 `[ERROR] ... exit code ...`），不用再用滑鼠點掉彈窗。（`restart-pime-backend.bat` 完全不呼叫 `regsvr32`，不適用這段。）
 
 **編碼注意事項：** 這四支腳本內文刻意全用 ASCII 英文，沒有放中文。原因是最初版本內含中文註解/訊息，UTF-8 存檔後在這台機器上用 `cmd.exe` 執行時，因為主控台的作用中文碼頁不是 UTF-8，多位元組的中文字被誤判成 `&`、`|` 之類的特殊字元，導致整行被拆成好幾個「無法辨識的命令」而報錯。在 `@echo off` 後加 `chcp 65001 >nul` 理論上可解，但在這台機器上實測仍失敗（cmd 對批次檔的頁碼切換時機不夠可靠），因此改用純 ASCII 內容澈底避開這個問題。**之後若要修改這四支 .bat，避免加入中文字元。**
